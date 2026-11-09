@@ -19,6 +19,8 @@ export function decodeUtf8Bytes(bytes, charset) {
 // RFC2047 编码词：=?charset?B?...?= / =?charset?Q?...?=
 export function decodeHeader(s) {
   if (!s || !s.includes('=?')) return s || '';
+  // RFC2047：相邻编码词之间的空白要忽略（邮件头折行留下的空格不能进主题）。
+  s = s.replace(/\?=\s+=\?/g, '?==?');
   return s.replace(/=\?([^?\s]+)\?([bBqQ])\?([^?]*)\?=/g, (_, charset, enc, text) => {
     try {
       let bytes;
