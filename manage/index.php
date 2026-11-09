@@ -382,7 +382,7 @@ function group_tag_style(string $gname): string {
 // 站点密钥用这把密钥再加密一份存在 site 记录里（notify_key_blob），
 // 定时任务不用登录就能解密邮箱凭据来查新邮件；改站点密码时这份也要跟着换。
 define('NOTIFY_KEY_FILE', DATA_DIR . '/notify_key.php');
-define('TG_WORKER_DEFAULT', 'https://muse-tg-26-10-14.mangguo88.workers.dev/');
+define('TG_WORKER_DEFAULT', ''); // 公开项目：默认不填。别人部署后在设置页填自己的 Worker 地址，或者直接用 chat_id + Bot Token 走直连
 function tg_notify_secret(): string {
     $old = read_data_file(NOTIFY_KEY_FILE);
     if ($old !== null && trim($old) !== '') return trim($old);
@@ -400,6 +400,7 @@ function tg_seen_file(string $mbid): string {
 }
 function tg_send(string $worker_url, string $text): array {
     $url = trim($worker_url) !== '' ? trim($worker_url) : TG_WORKER_DEFAULT;
+    if ($url === '') return [false, '没有配 TG 中转地址：设置页填 chat_id + Bot Token 用直连，或者填你自己的 Worker 地址'];
     $body = json_encode(['text' => $text], JSON_UNESCAPED_UNICODE);
     // 和微软令牌请求一个做法：file_get_contents + stream 上下文，不用 curl；
     // 必须带普通 User-Agent，urllib 默认 UA 会被 Worker 所在域直接拦 403。
@@ -649,7 +650,7 @@ function render_add_form($draft, $edit_box, $edit_id, $return_tab = 'add', $bar 
               <strong>Henna 域名邮箱</strong>
               <p class="muted" style="margin:4px 0 8px">Henna 面板没有 IMAP / SMTP，邮件存在它自己的数据库里；这里走 Henna 的 HTTP API 收发，不用填下面的 IMAP / SMTP 服务器。登录账号是登面板用的邮箱，一般和下面的邮箱地址一样，会自动填过去，不一样就自己改；密码也可以直接贴面板设置里的 API Key。</p>
               <label>Henna 面板地址</label>
-              <input type="text" name="henna_panel" id="henna_panel" value="<?=e((string)($draft['henna_panel'] ?? 'https://email.070605.xyz'))?>" placeholder="https://email.070605.xyz">
+              <input type="text" name="henna_panel" id="henna_panel" value="<?=e((string)($draft['henna_panel'] ?? ''))?>" placeholder="https://你的 Henna 面板地址">
               <label>Henna 登录账号</label>
               <input type="email" name="henna_login" id="henna_login" value="<?=e((string)($draft['henna_login'] ?? ''))?>" placeholder="登录 Henna 面板用的邮箱"<?= $cur_provider === 'henna' ? ' required' : '' ?>>
               <label>Henna 登录密码</label>
@@ -660,7 +661,7 @@ function render_add_form($draft, $edit_box, $edit_id, $return_tab = 'add', $bar 
               <strong>Cloud Mail 域名邮箱</strong>
               <p class="muted" style="margin:4px 0 8px">Cloud Mail 面板没有 IMAP / SMTP，邮件存在它自己的数据库里；这里走 Cloud Mail 的 HTTP API 收发，不用填下面的 IMAP / SMTP 服务器。登录账号是登面板用的那个用户账号（它名下可以有多个 @域名 地址），一般和下面的邮箱地址一样，会自动填过去，不一样就自己改；一个登录账号下的多个地址要一个一个加，每条只管一个地址。</p>
               <label>Cloud Mail 面板地址</label>
-              <input type="text" name="cloudmail_panel" id="cloudmail_panel" value="<?=e((string)($draft['cloudmail_panel'] ?? 'https://cfmail.151819.xyz'))?>" placeholder="https://cfmail.151819.xyz">
+              <input type="text" name="cloudmail_panel" id="cloudmail_panel" value="<?=e((string)($draft['cloudmail_panel'] ?? ''))?>" placeholder="https://你的 Cloud Mail 面板地址">
               <label>Cloud Mail 登录账号</label>
               <input type="email" name="cloudmail_login" id="cloudmail_login" value="<?=e((string)($draft['cloudmail_login'] ?? ''))?>" placeholder="登录 Cloud Mail 面板用的邮箱"<?= $cur_provider === 'cloudmail' ? ' required' : '' ?>>
               <label>Cloud Mail 登录密码</label>
@@ -1482,7 +1483,7 @@ $edit_box = null;
 if ($edit_id !== '') {
     foreach ($mailboxes as $mb) { if ($mb['id'] === $edit_id) { $edit_box = $mb; break; } }
     if ($edit_box) {
-        $draft = array_merge(['email' => $edit_box['email'], 'dname' => $edit_box['display_name'] ?? '', 'group' => $edit_box['group'] ?? '未分组', 'method' => $edit_box['method'] ?? 'authcode', 'cred' => decrypt_cred((string)($edit_box['credential'] ?? ''), $key) ?? '', 'ihost' => $edit_box['imap_host'] ?? '', 'iport' => $edit_box['imap_port'] ?? 993, 'ienc' => $edit_box['imap_enc'] ?? 'ssl', 'shost' => $edit_box['smtp_host'] ?? '', 'sport' => $edit_box['smtp_port'] ?? 587, 'senc' => $edit_box['smtp_enc'] ?? 'tls', 'kind' => $edit_box['kind'] ?? 'imap', 'henna_panel' => $edit_box['henna_panel'] ?? 'https://email.070605.xyz', 'henna_login' => $edit_box['henna_login'] ?? '', 'cloudmail_panel' => $edit_box['cloudmail_panel'] ?? 'https://cfmail.151819.xyz', 'cloudmail_login' => $edit_box['cloudmail_login'] ?? '', 'edit_id' => $edit_id], $draft);
+        $draft = array_merge(['email' => $edit_box['email'], 'dname' => $edit_box['display_name'] ?? '', 'group' => $edit_box['group'] ?? '未分组', 'method' => $edit_box['method'] ?? 'authcode', 'cred' => decrypt_cred((string)($edit_box['credential'] ?? ''), $key) ?? '', 'ihost' => $edit_box['imap_host'] ?? '', 'iport' => $edit_box['imap_port'] ?? 993, 'ienc' => $edit_box['imap_enc'] ?? 'ssl', 'shost' => $edit_box['smtp_host'] ?? '', 'sport' => $edit_box['smtp_port'] ?? 587, 'senc' => $edit_box['smtp_enc'] ?? 'tls', 'kind' => $edit_box['kind'] ?? 'imap', 'henna_panel' => $edit_box['henna_panel'] ?? '', 'henna_login' => $edit_box['henna_login'] ?? '', 'cloudmail_panel' => $edit_box['cloudmail_panel'] ?? '', 'cloudmail_login' => $edit_box['cloudmail_login'] ?? '', 'edit_id' => $edit_id], $draft);
     }
 }
 
@@ -2919,7 +2920,7 @@ if (logged_in() && $cur_mb && in_array($tab, ['inbox', 'read', 'compose', 'attac
           <h2>微软账号登录（Outlook / Hotmail）</h2>
           <p class="muted">Outlook / Hotmail 个人邮箱微软只认这种登录：先去 Azure 注册一个应用，把下面的 Client ID 和 Secret 填进来保存，再去添加邮箱点「用微软账号登录添加」，跳到微软登录页登一次就行，以后不用填密码和授权码，令牌过期自动刷新。</p>
           <p class="muted">重定向 URI —— 去 Azure 注册应用时就填这个，一字不差：</p>
-          <input type="text" readonly value="https://mangguo.lele.pp.ua/oauth.php?step=ms_callback" onclick="this.select()" style="font-size:13px" title="点一下全选，复制去 Azure 填">
+          <input type="text" readonly value="<?=e(MS_REDIRECT_URI)?>" onclick="this.select()" style="font-size:13px" title="点一下全选，复制去 Azure 填">
           <?php $ms_cfg = ms_config($key); ?>
           <form method="post" autocomplete="off">
             <input type="hidden" name="csrf" value="<?=e(csrf())?>">
@@ -2965,7 +2966,7 @@ if (logged_in() && $cur_mb && in_array($tab, ['inbox', 'read', 'compose', 'attac
               </div>
             </div>
             <p class="muted">怎么拿这两个：① TG 里找 @BotFather，/newbot 建个机器人，复制 Token；② 找 @userinfobot 发任意消息，它回你的数字 ID 就是 chat_id；③ 先给你的机器人发一条消息（点 Start），不然它发不出去。填好保存后点下面的“发一条测试通知”，收到就是通了。chat_id 和 Token 都是加密存在本站的，别人打不开。上面两项都填了就直连 Telegram 发通知；没填就继续走下面的中转地址。</p>
-            <label>TG 中转地址（上面两项没填时才用，默认就是你现在收通知的那条 Worker，不用改）</label>
+            <label>TG 中转地址（上面两项没填时才用；没有自己的 Worker 就留空，直连是首选）</label>
             <input type="text" name="tg_worker" value="<?=e($tg_url)?>">
             <p><button class="btn">保存 TG 设置</button></p>
           </form>

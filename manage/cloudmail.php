@@ -18,13 +18,14 @@ declare(strict_types=1);
 //   删除：DELETE /email/delete 是软删，删了就从列表消失，没有垃圾箱可看。
 // 注意：这个文件里不写 PHP 闭合标记（任何位置都不写，包括注释）。
 
-define('CLOUDMAIL_DEFAULT_PANEL', 'https://cfmail.151819.xyz');
+define('CLOUDMAIL_DEFAULT_PANEL', ''); // 公开项目：默认不填，别人部署时在添加页填自己的 Cloud Mail 面板地址
 define('CLOUDMAIL_HTTP_TIMEOUT', 15);
 
 // 面板地址归一化：去尾斜杠，没写协议就补 https，空的用默认面板
 function cloudmail_panel_url(string $panel): string {
     $panel = trim($panel);
     if ($panel === '') $panel = CLOUDMAIL_DEFAULT_PANEL;
+    if ($panel === '') return '';
     $panel = rtrim($panel, '/');
     if (stripos($panel, 'http://') !== 0 && stripos($panel, 'https://') !== 0) $panel = 'https://' . $panel;
     return $panel;

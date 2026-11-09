@@ -66,7 +66,7 @@ manage-center/                  ← GitHub 仓库根目录
 ### 部署步骤（别人照着做）
 
 **准备（一次性的）：**
-1. Fork 这个仓库（私有库，别公开）。
+1. Fork 这个仓库（公开库，别人 fork 即用）。
 2. Cloudflare 账号开 Workers Paid（$5/月，要绑卡），记下 Account ID。
 3. 在 Cloudflare Dashboard 建一个 R2 存储桶，比如叫 `mc-data`；再建一个 R2 API Token（Object Read & Write，只能访问这个桶），记下 Access Key ID / Secret Access Key / Account ID。
 4. 仓库 Secrets 里加：
@@ -79,7 +79,7 @@ manage-center/                  ← GitHub 仓库根目录
 7. Worker 里加 Secrets（`wrangler secret put`，进 `manage-center/` 目录跑）：
    - `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET=mc-data`——容器启动和备份都靠这四个。
    - `TG_KEY`——TG 轮询用的 key，和站点设置页里显示的 `tg_key` 填同一个值（Worker 每 5 分钟拿它调 `?tgcheck=1`）。
-8. 自定义域名（可选）：Dashboard → Workers & Pages → 这个 Worker → Custom Domains 绑自己的域名。**绑了域名后，微软登录回调要改**：`manage/ms_oauth.php` 里 `MS_REDIRECT_URI` 改成新域名，并且去 Azure 注册的应用里把重定向 URI 改成一模一样的，差一个字微软就报不匹配。TG 通知里的“看全文”链接（`index.php` 约 468 行）也改成新域名。
+8. 自定义域名（可选）：Dashboard → Workers & Pages → 这个 Worker → Custom Domains 绑自己的域名。TG 通知里的“看全文”链接不用改代码，跟着当前域名走（v4.29 起）。**绑了域名后，微软登录回调要改**：`manage/ms_oauth.php` 里 `MS_REDIRECT_URI` 改成新域名，并且去 Azure 注册的应用里把重定向 URI 改成一模一样的，差一个字微软就报不匹配。
 
 ### 费用估算（先说明是估算，以第一张账单为准）
 

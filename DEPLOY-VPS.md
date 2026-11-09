@@ -5,7 +5,7 @@
 | 方式 | 行不行 | 说明 |
 | --- | --- | --- |
 | VPS | ✅ 完全可以 | 程序是纯 PHP，不依赖 Serv00 任何特有东西，有 PHP + 能出站就行 |
-| GitHub | ✅ 可以 | 代码放 GitHub 私有库，Actions 推到 VPS/Serv00，push 即部署（workflow 见 `.github/workflows/deploy.yml`） |
+| GitHub | ✅ 可以 | 代码放 GitHub 公开库，Actions 推到 VPS/Serv00，push 即部署（workflow 见 `.github/workflows/deploy.yml`） |
 | Cloudflare Pages / Workers | ❌ 跑不了 | Pages 只托管静态站，Workers 是 JS 运行时，没有 PHP 解释器；CF 能做的是域名、CDN/WAF、Tunnel（挡在前面），不是跑程序 |
 
 想“没有 Serv00 也能用”，正确组合是 **VPS + GitHub Actions 自动部署 + Cloudflare 只管域名/Tunnel**。下面是 VPS 那份。
@@ -124,7 +124,7 @@ sudo chown -R www-data:www-data /var/www/mail/data && sudo chmod 700 /var/www/ma
 
 ## GitHub 自动部署怎么接
 
-- 建一个**私有库**（千万别公开，`data/` 里有凭据——仓库根目录的 `.gitignore` 已经把 `data/`、`*.bak` 拦住了）
+- 建一个**公开库**（代码里个人默认值已清空；`data/` 里有凭据，千万别提交——仓库根目录的 `.gitignore` 已经把 `data/`、`*.bak` 拦住了）
 - 库结构：`manage/` 目录（6 个 php 文件）+ `.github/workflows/deploy.yml` + 本文件
 - 在仓库 Settings → Secrets and variables → Actions 里加：
   - `SSH_HOST`（VPS 地址）、`SSH_USER`、`SSH_KEY`（部署用的私钥）、`SSH_PORT`（默认 22）、`TARGET_DIR`（如 `/var/www/mail`）

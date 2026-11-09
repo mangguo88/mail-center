@@ -15,9 +15,9 @@
 
 ## 第 1 步：把代码推到 GitHub（10 分钟）
 
-**建一个私有库**（一定要私有，里面有你的域名和 Worker 地址）：
+**建一个公开库**（选 **Public**；代码里你个人的默认值已经清空，别人 fork 后填自己的地址和密钥就能用）：
 
-1. 打开 <https://github.com/new>，Repository name 填 `mangguo-mail-center`（名字随便起），选 **Private**，**不要勾** Add a README、.gitignore、license（建空库，不然 push 会冲突），点 Create repository。
+1. 打开 <https://github.com/new>，Repository name 填 `mangguo-mail-center`（名字随便起），选 **Public**，**不要勾** Add a README、.gitignore、license（建空库，不然 push 会冲突），点 Create repository。
 2. 在你电脑上打开终端，进到这份代码的目录（这份教程的仓库根目录），依次跑：
    ```bash
    cd ~/workspace/email-aggregator/manage-center   # 你电脑上代码实际放的位置
@@ -134,7 +134,7 @@ TG 通知用的 `TG_KEY`（可选，不用 TG 通知就跳过这步）：
 
 ## 安全提醒
 
-- 仓库一定要是 **Private**，不要公开。
+- 仓库可以是 **Public**（代码里你个人的默认值已经清空：TG 中转、Henna 面板、Cloud Mail 面板默认都是空的，别人部署后自己填）。
 - 永远不要把 `data/` 提交进仓库（`.gitignore` 已经拦了，`git status` 时检查一遍）。
 - API Token、R2 Secret Access Key、Bot Token 只显示一次，丢了就重新建一个，旧的马上作废。
 - 别人用你的仓库部署时，让他们自己建 R2 桶、建自己的 TG 机器人、填自己的 Secrets，不要共用你的。

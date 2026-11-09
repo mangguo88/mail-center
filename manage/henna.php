@@ -9,13 +9,14 @@ declare(strict_types=1);
 // 登录每次请求都现登一次（同一请求里用 static 缓存，不重复登）。
 // 注意：这个文件里不写 PHP 闭合标记（任何位置都不写，包括注释）。
 
-define('HENNA_DEFAULT_PANEL', 'https://email.070605.xyz');
+define('HENNA_DEFAULT_PANEL', ''); // 公开项目：默认不填，别人部署时在添加页填自己的 Henna 面板地址
 define('HENNA_HTTP_TIMEOUT', 15);
 
 // 面板地址归一化：去尾斜杠，没写协议就补 https，空的用默认面板
 function henna_panel_url(string $panel): string {
     $panel = trim($panel);
     if ($panel === '') $panel = HENNA_DEFAULT_PANEL;
+    if ($panel === '') return '';
     $panel = rtrim($panel, '/');
     if (stripos($panel, 'http://') !== 0 && stripos($panel, 'https://') !== 0) $panel = 'https://' . $panel;
     return $panel;
