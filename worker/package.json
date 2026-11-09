@@ -1,0 +1,1 @@
+{"devDependencies":{"wrangler":"^4"},"name":"mail-center-worker","private":true,"scripts":{"deploy":"wrangler deploy","dev":"wrangler dev","migrate":"wrangler d1 execute mail-center-db --file=./schema.sql"},"type":"module","version":"0.1.0"}
