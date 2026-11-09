@@ -33,6 +33,11 @@ function fmtListDate(raw) {
   if (dtfYM.format(new Date(t)) === dtfYM.format(new Date()) && dtfYMD.format(new Date(t)) === dtfYMD.format(new Date())) return dtfHM.format(new Date(t));
   return dtfYMD.format(new Date(t));
 }
+function fmtFullDate(raw) {
+  const t = parseMailDate(raw);
+  if (!t) return raw || '';
+  return dtfYMD.format(new Date(t)) + ' ' + dtfHM.format(new Date(t));
+}
 function fmtHM(iso) {
   const t = Date.parse(iso || '');
   return isNaN(t) ? '' : dtfHM.format(new Date(t));
@@ -755,7 +760,7 @@ function renderReader() {
   const bodyMode = hasText ? 'text' : (hasHtml ? 'html' : 'text');
   card.innerHTML =
     '<h2>' + esc(m.subject !== '' ? m.subject : '（无主题）') + '</h2>'
-    + '<p class="reader-meta">发件人：' + esc(m.from_raw || ((m.from_name || '') + ' ' + (m.from_addr || ''))) + '<br>收件人：' + esc(m.to || '') + (m.cc ? '<br>抄送：' + esc(m.cc) : '') + '<br>时间：' + esc(m.date || '') + '</p>'
+    + '<p class="reader-meta">发件人：' + esc(m.from_raw || ((m.from_name || '') + ' ' + (m.from_addr || ''))) + '<br>收件人：' + esc(m.to || '') + (m.cc ? '<br>抄送：' + esc(m.cc) : '') + '<br>时间：' + esc(fmtFullDate(m.date)) + '</p>'
     + (hasText && hasHtml
       ? '<p><span class="seg" id="bodySeg"><button data-mode="text" class="' + (bodyMode === 'text' ? 'on' : '') + '">纯文本</button><button data-mode="html" class="' + (bodyMode === 'html' ? 'on' : '') + '">HTML 版</button></span></p>'
       : '')

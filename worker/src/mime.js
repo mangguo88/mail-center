@@ -225,6 +225,8 @@ export function bestBody(parsed) {
   t = t.replace(/<(br\s*\/?|p|div|tr|li|h[1-4])[^>]*>/gi, '\n');
   t = t.replace(/<\/(p|div|tr|li|h[1-4])>/gi, '\n');
   t = t.replace(/<[^>]+>/g, '');
+  t = t.replace(/&#(\d+);/g, (_, n) => { try { return String.fromCodePoint(parseInt(n, 10)); } catch { return _; } });
+  t = t.replace(/&#x([0-9A-Fa-f]+);/g, (_, n) => { try { return String.fromCodePoint(parseInt(n, 16)); } catch { return _; } });
   t = t.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
   t = t.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   return { text: t, html };
@@ -251,6 +253,8 @@ export function cleanSnippet(raw) {
   }
   t = kept.join('\n');
   t = t.replace(/<[^>]+>/g, ' ');
+  t = t.replace(/&#(\d+);/g, (_, n) => { try { return String.fromCodePoint(parseInt(n, 10)); } catch { return _; } });
+  t = t.replace(/&#x([0-9A-Fa-f]+);/g, (_, n) => { try { return String.fromCodePoint(parseInt(n, 16)); } catch { return _; } });
   t = t.replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"');
   t = t.replace(/\s+/g, ' ').trim();
   const ctrl = [...t].filter((c) => { const o = c.charCodeAt(0); return o < 9 || (o > 13 && o < 32); }).length;
