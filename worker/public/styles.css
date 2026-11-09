@@ -178,4 +178,4 @@ textarea{width:100%;padding:10px 12px;border:1px solid #e7e5e4;border-radius:8px
 .spin{display:inline-block;width:14px;height:14px;border:2px solid #bbf7d0;border-top-color:#16a34a;border-radius:50%;animation:spin 0.8s linear infinite;vertical-align:-2px}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:900px){.panes{flex-direction:column}.pane-mid{flex:1;width:auto;margin-left:0}.pane-right{width:100%}.pane-right .card{position:static}.resizer{display:none}}
-@media(max-width:640px){.side{width:auto;min-width:150px;max-width:82vw}.row{flex-direction:column}.form-grid{grid-template-columns:1fr}.tgslots{grid-template-columns:1fr}.modal-backdrop{padding:12px 8px}}
+@media(max-width:640px){.side{width:200px;min-width:200px;max-width:200px}.side-edge{display:none}.row{flex-direction:column}.form-grid{grid-template-columns:1fr}.tgslots{grid-template-columns:1fr}.modal-backdrop{padding:12px 8px}}
