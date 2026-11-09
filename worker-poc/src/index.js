@@ -99,7 +99,7 @@ function tokenize(s) {
   return toks;
 }
 
-function parseTokens(toks) {
+function parseSeq(toks) {
   let pos = 0;
   function parseOne() {
     const t = toks[pos++];
@@ -116,7 +116,9 @@ function parseTokens(toks) {
     if (t === 'NIL') return null;
     return t;
   }
-  return parseOne();
+  const out = [];
+  while (pos < toks.length) out.push(parseOne());
+  return out;
 }
 
 // ---- RFC 2047 encoded-word 解码（=?UTF-8?B?...?= / =?UTF-8?Q?...?=） ----
@@ -190,7 +192,11 @@ async function imapTest(env, count) {
     if (!select.status.includes('OK')) {
       return { ok: false, error: 'select_failed', status: select.status };
     }
-    const exists = parseInt((select.status.match(/\[?EXISTS\]?/) && '') || '0', 10) || null;
+    let exists = null;
+    for (const l of select.untagged) {
+      const em = l.match(/^\* (\d+) EXISTS/);
+      if (em) { exists = parseInt(em[1], 10); break; }
+    }
     const fetch = await command('a003', `FETCH 1:${count} (UID ENVELOPE)`);
     if (!fetch.status.includes('OK')) {
       return { ok: false, error: 'fetch_failed', status: fetch.status };
@@ -200,7 +206,7 @@ async function imapTest(env, count) {
       const m = line.match(/^\* (\d+) FETCH \((.*)\)$/);
       if (!m) continue;
       const toks = tokenize(m[2]);
-      const parsed = parseTokens(toks);
+      const parsed = parseSeq(toks);
       let uid = null, envArr = null;
       for (let i = 0; i + 1 < parsed.length; i += 2) {
         if (parsed[i] === 'UID') uid = parsed[i + 1];
