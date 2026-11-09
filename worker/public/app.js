@@ -288,7 +288,7 @@ function renderSidebar() {
   let h = '<a class="compose-btn" id="composeBtn">＋ 写信</a>';
   h += '<details class="mblist" open><summary class="mblist-h"><span><span class="ico ico-blue"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M22 6l-10 7L2 6"/></svg></span> 我的邮箱</span><span class="fold">▾</span></summary>';
   if (!S.mailboxes.length) {
-    h += '<p class="muted" style="padding:4px 12px">还没有邮箱，点左栏「＋ 添加邮箱」加第一个吧。建议先加 QQ（用授权码）。</p>';
+    h += '<p class="muted" style="padding:4px 12px">还没有邮箱，去「邮箱管理」里点「＋ 添加邮箱」加第一个吧。建议先加 QQ（用授权码）。</p>';
   }
   for (const g of order) {
     const isOpen = open.indexOf(g) !== -1;
@@ -307,10 +307,9 @@ function renderSidebar() {
   }
   h += '</details>';
   h += '<a class="mb-ico" id="mbIco" title="我的邮箱：点一下展开侧栏选邮箱"><span class="ico ico-blue"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M22 6l-10 7L2 6"/></svg></span></a>';
-  h += '<a href="#" data-nav="inbox" class="' + (S.view === 'inbox' ? 'on' : '') + '"><span class="ico"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></span> <span class="lbl">收件箱</span></a>';
   h += '<a href="#" data-nav="mailboxes" class="' + (S.view === 'mailboxes' ? 'on' : '') + '"><span class="ico"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12l2 2 4-4"/></svg></span> <span class="lbl">邮箱管理</span></a>';
-  h += '<a href="#" data-nav="add" class="' + (S.view === 'mailboxes' ? 'on' : '') + '"><span class="ico ico-amber"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg></span> <span class="lbl">添加邮箱</span></a>';
   h += '<a href="#" data-nav="settings" class="' + (S.view === 'settings' ? 'on' : '') + '"><span class="ico ico-violet"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 0 2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span> <span class="lbl">设置</span></a>';
+  h += '<div style="margin-top:24px;padding:12px;border-top:1px solid #f5f5f4" class="muted">收信、读信、回信、转发、写信都在本站完成，不用跳去别处。</div>';
   h += '<div class="side-edge" id="sideEdge" title="拖动调整侧栏宽度，点圆钮折叠 / 展开"><button class="edge-btn" id="edgeBtn" title="折叠 / 展开侧栏">‹</button></div>';
   side.innerHTML = h;
 
@@ -319,7 +318,6 @@ function renderSidebar() {
   $$('#side [data-nav]').forEach((a) => a.addEventListener('click', (e) => {
     e.preventDefault();
     const nav = a.getAttribute('data-nav');
-    if (nav === 'add') { S.view = 'mailboxes'; S.mbFilter = ''; renderSidebar(); renderMain(); setTimeout(() => { const d = $('#addBar'); if (d) { d.open = true; d.scrollIntoView(); } }, 50); return; }
     S.view = nav;
     renderSidebar();
     renderMain();
@@ -552,7 +550,7 @@ function renderInboxView(main) {
   const mb = curMailbox();
   if (!mb) {
     $('#inboxTitle').textContent = '收件箱';
-    $('#msgList').innerHTML = '<p class="muted">还没有邮箱，点左栏「＋ 添加邮箱」加第一个吧。建议先加 QQ（用授权码），再加 Outlook / Gmail。</p>';
+    $('#msgList').innerHTML = '<p class="muted">还没有邮箱，去「邮箱管理」里点「＋ 添加邮箱」加第一个吧。建议先加 QQ（用授权码），再加 Outlook / Gmail。</p>';
     return;
   }
   loadInbox(false);
@@ -1005,29 +1003,6 @@ function renderMailboxesView(main) {
   const { order, map } = groupsOf(S.mailboxes);
   let h = '<div class="card"><h2>邮箱管理</h2>'
     + '<p class="muted">这里只管“有哪些邮箱、能不能连上”。要看信，点左栏「我的邮箱」里点一个邮箱直接打开；要写信，点左栏「写信」。</p>';
-  if (!S.mailboxes.length) {
-    h += '<p class="muted">还没有邮箱，点下面「＋ 添加邮箱」加第一个吧。建议先加 QQ（用授权码），再加 Outlook / Gmail。</p>';
-  } else {
-    h += '<div class="folders"><a class="' + (S.mbFilter === '' ? 'on' : '') + '" data-gf="">全部（' + S.mailboxes.length + '）</a>'
-      + order.map((g) => '<a class="' + (S.mbFilter === g ? 'on' : '') + '" data-gf="' + esc(g) + '">' + esc(g) + '（' + map[g].length + '）</a>').join('') + '</div>';
-    h += '<div style="border:1px solid #e7e5e4;border-radius:8px;padding:12px;margin:0 0 12px"><strong>分组管理</strong> <span class="muted">改一个分组名，这个分组里的邮箱一起跟着改，不用一个个改。</span>'
-      + order.map((g) => '<div style="display:flex;gap:8px;align-items:center;margin:8px 0 0;flex-wrap:wrap"><span style="width:180px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(g) + '（' + map[g].length + '）">' + esc(g) + '（' + map[g].length + '）</span><span class="muted">改成</span><input type="text" class="gname-input" data-group="' + esc(g) + '" value="' + esc(g) + '" style="width:130px;padding:6px 8px;border:1px solid #e7e5e4;border-radius:6px;font-size:14px"><button class="btn ghost sm" data-rename="' + esc(g) + '">改分组名</button></div>').join('')
-      + '</div>';
-    h += '<div class="tablewrap"><table><tr><th>邮箱</th><th>分组</th><th>登录方式</th><th>IMAP</th><th>状态</th><th>操作</th></tr><tbody>';
-    for (const m of S.mailboxes) {
-      const g = groupOf(m);
-      if (S.mbFilter !== '' && g !== S.mbFilter) continue;
-      const statusTag = m.status === 'ok' ? '<span class="tag ok">连接成功</span>' : (m.status === 'error' ? '<span class="tag fail">连接失败</span>' : '<span class="tag none">未测试</span>');
-      h += '<tr><td class="email"><strong>' + esc(m.email) + '</strong>' + (m.kind && m.kind !== 'imap' ? ' <span class="tag ok">' + esc(m.kind) + '</span>' : '') + (m.address && m.address !== m.email ? '<br><span class="muted">' + esc(m.address) + '</span>' : '') + '</td>'
-        + '<td><span class="tag gtag-cell" data-mb="' + esc(m.id) + '" style="' + groupTagStyle(g) + ';cursor:pointer" title="点一下改分组">' + esc(g) + '</span></td>'
-        + '<td>授权码 · 应用专用密码</td>'
-        + '<td class="muted">' + esc(m.imap_host || '') + ':' + (m.imap_port || '') + '</td>'
-        + '<td class="err">' + statusTag + '<br><button class="btn ghost sm" data-test="' + esc(m.id) + '" style="margin-top:6px">测试连接</button></td>'
-        + '<td style="white-space:nowrap"><button class="btn ghost sm" data-edit="' + esc(m.id) + '">编辑</button> <button class="btn danger sm" data-del="' + esc(m.id) + '">删除</button></td></tr>';
-    }
-    h += '</tbody></table></div>';
-    h += '<p class="muted">拖动左栏邮箱可以调换顺序，左栏拖完自动保存。</p>';
-  }
   h += '</div>';
   h += '<div class="card"><details class="addbar" id="addBar"><summary><span style="color:#16a34a">＋</span> 添加邮箱 <span class="fold">▾</span></summary>'
     + '<p class="muted">先选登录方式，再填凭据。QQ 用授权码，Gmail 用应用专用密码；哪个能登上，取决于邮箱厂商那边的规则。保存时先测连接，通了才存。</p>'
@@ -1053,6 +1028,32 @@ function renderMailboxesView(main) {
     + '<label>IMAP 登录账号（默认和邮箱地址一样）</label><input type="text" id="mb_login_user" placeholder="默认和邮箱地址一样">'
     + '<p style="margin-top:16px"><button class="btn" id="mbSaveBtn">保存邮箱</button> <button type="button" class="btn ghost" id="mbCancelBtn" style="display:none">取消编辑</button></p>'
     + '</form></details></div>';
+  h += '<div class="card">';
+  if (!S.mailboxes.length) {
+    h += '<p class="muted">还没有邮箱，点上面「＋ 添加邮箱」加第一个吧。建议先加 QQ（用授权码），再加 Outlook / Gmail。</p>';
+  } else {
+    h += '<div class="folders"><a class="' + (S.mbFilter === '' ? 'on' : '') + '" data-gf="">全部（' + S.mailboxes.length + '）</a>'
+      + order.map((g) => '<a class="' + (S.mbFilter === g ? 'on' : '') + '" data-gf="' + esc(g) + '">' + esc(g) + '（' + map[g].length + '）</a>').join('') + '</div>';
+    h += '<div style="border:1px solid #e7e5e4;border-radius:8px;padding:12px;margin:0 0 12px"><strong>分组管理</strong> <span class="muted">改一个分组名，这个分组里的邮箱一起跟着改，不用一个个改。</span>'
+      + order.map((g) => '<div style="display:flex;gap:8px;align-items:center;margin:8px 0 0;flex-wrap:wrap"><span style="width:180px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(g) + '（' + map[g].length + '）">' + esc(g) + '（' + map[g].length + '）</span><span class="muted">改成</span><input type="text" class="gname-input" data-group="' + esc(g) + '" value="' + esc(g) + '" style="width:130px;padding:6px 8px;border:1px solid #e7e5e4;border-radius:6px;font-size:14px"><button class="btn ghost sm" data-rename="' + esc(g) + '">改分组名</button></div>').join('')
+      + '</div>';
+    h += '<div class="tablewrap"><table><tr><th>邮箱</th><th>分组</th><th>登录方式</th><th>IMAP</th><th>状态</th><th>操作</th></tr><tbody>';
+    for (const m of S.mailboxes) {
+      const g = groupOf(m);
+      if (S.mbFilter !== '' && g !== S.mbFilter) continue;
+      const statusTag = m.status === 'ok' ? '<span class="tag ok">连接成功</span>' : (m.status === 'error' ? '<span class="tag fail">连接失败</span>' : '<span class="tag none">未测试</span>');
+      h += '<tr><td class="email"><strong>' + esc(m.email) + '</strong>' + (m.kind && m.kind !== 'imap' ? ' <span class="tag ok">' + esc(m.kind) + '</span>' : '') + (m.address && m.address !== m.email ? '<br><span class="muted">' + esc(m.address) + '</span>' : '') + '</td>'
+        + '<td><span class="tag gtag-cell" data-mb="' + esc(m.id) + '" style="' + groupTagStyle(g) + ';cursor:pointer" title="点一下改分组">' + esc(g) + '</span></td>'
+        + '<td>授权码 · 应用专用密码</td>'
+        + '<td class="muted">' + esc(m.imap_host || '') + ':' + (m.imap_port || '') + '</td>'
+        + '<td class="err">' + statusTag + '<br><button class="btn ghost sm" data-test="' + esc(m.id) + '" style="margin-top:6px">测试连接</button></td>'
+        + '<td style="white-space:nowrap"><button class="btn ghost sm" data-edit="' + esc(m.id) + '">编辑</button> <button class="btn danger sm" data-del="' + esc(m.id) + '">删除</button></td></tr>';
+    }
+    h += '</tbody></table></div>';
+    h += '<p class="muted">拖动左栏邮箱可以调换顺序，左栏拖完自动保存。</p>';
+  }
+  h += '</div>';
+
   main.innerHTML = h;
   // 分组筛选
   $$('#main [data-gf]').forEach((a) => a.addEventListener('click', () => { S.mbFilter = a.getAttribute('data-gf'); renderMailboxesView(main); }));
