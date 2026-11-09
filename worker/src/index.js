@@ -1,5 +1,5 @@
-// index.js — Mail Center Worker Phase 1：登录、邮箱管理、收件箱、读信、发信（JSON API）
-// 界面在 Phase 2（同一 Worker 上静态资源）；域名邮箱适配器、TG、Outlook 在 Phase 3。
+// index.js — Mail Center Worker：登录、邮箱管理、收件箱、读信、发信（JSON API）+ 静态资源（Phase 2 界面）
+// 域名邮箱适配器、TG 轮询、Outlook 在 Phase 3。
 
 import {
   b64encode, randomBytes, sha256Hex, hexEncode,
@@ -9,11 +9,11 @@ import {
 import {
   getSite, saveSite, listMailboxes, getMailbox, saveMailbox, deleteMailbox,
   cacheRead, cacheWrite, cacheClearMailbox, bumpCacheVersion,
-  sessionIssue, sessionGet, sessionTouch, sessionRevoke,
+  sessionIssue, sessionGet, sessionTouch, sessionRevoke, sessionRevokeOthers,
 } from './db.js';
 import { connectMailbox } from './imap.js';
 import { smtpSend, buildSentRaw } from './smtp.js';
-import { parseMime, bestBody, decodeHeader, parseAddressHeader } from './mime.js';
+import { parseMime, bestBody, decodeHeader, parseAddressHeader, b64ToBytes } from './mime.js';
 import { kvCacheGet, kvCachePut } from './cache.js';
 import { getRaw, storeRaw, getAttachment, storeAttachment, deleteMessageStore } from './store.js';
 
@@ -177,17 +177,33 @@ function presetFor(email) {
   return PRESETS[domain] || null;
 }
 
+// 富文本正文转纯文本（只填了 html 没填 text 时用）：去掉标签、留换行。
+function htmlToText(html) {
+  return String(html || '')
+    .replace(/<(br|p|div|tr|li|h[1-6]|blockquote)[^>]*>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&').replace(/&lt;/gi, '<').replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"').replace(/&#39;|&apos;/gi, "'")
+    .replace(/\n{3,}/g, '\n\n').trim();
+}
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     const path = url.pathname;
     const method = req.method;
 
-    if (path === '/' && method === 'GET') {
-      return json({ ok: true, service: 'mail-center', version: 'phase1', note: 'API 见 /api/*，界面在 Phase 2。' });
+    // 健康检查（原来 GET / 的状态 JSON 搬到这里）。
+    if (path === '/api/status' && method === 'GET') {
+      return json({ ok: true, service: 'mail-center', version: 'phase2', note: 'API 见 /api/*。' });
     }
 
-    if (!path.startsWith('/api/')) return err('接口不存在。', 404);
+    // 非 API 请求走静态资源（SPA 首页、app.js、styles.css）。
+    if (!path.startsWith('/api/')) {
+      if (env.ASSETS) return env.ASSETS.fetch(req);
+      return json({ ok: true, service: 'mail-center', version: 'phase2' });
+    }
 
     // ---------- 不用登录：setup / login ----------
     if (path === '/api/setup' && method === 'POST') {
@@ -256,6 +272,8 @@ export default {
         cache_ttl: site.cache_ttl,
         tg_enabled: !!site.tg_enabled,
         tg_configured: !!(site.tg_bot_token && site.tg_chat_id),
+        tg_chat_id: site.tg_chat_id || '',
+        tg_token_masked: site.tg_bot_token ? '****' + String(site.tg_bot_token).slice(-4) : '',
       }));
     }
 
@@ -265,7 +283,20 @@ export default {
       const next = { ...site };
       if (typeof body.display_name === 'string' && body.display_name.trim()) next.display_name = body.display_name.trim();
       if (Number.isInteger(body.cache_ttl) && body.cache_ttl >= 0 && body.cache_ttl <= 60) next.cache_ttl = body.cache_ttl;
+      // TG 推送：开关 + chat_id + Bot Token（Token 留空或填 **** 开头 = 不改）。
+      if (typeof body.tg_enabled === 'boolean') next.tg_enabled = body.tg_enabled ? 1 : 0;
+      if (typeof body.tg_chat_id === 'string') next.tg_chat_id = body.tg_chat_id.trim();
+      if (typeof body.tg_bot_token === 'string') {
+        const tok = body.tg_bot_token.trim();
+        if (tok !== '' && !tok.startsWith('****')) next.tg_bot_token = tok;
+      }
       await saveSite(env.DB, next);
+      return done(json({ ok: true }));
+    }
+
+    // 退出所有记住的设备：删掉除当前会话外的全部会话（当前浏览器不断线）。
+    if (path === '/api/settings/revoke-all' && method === 'POST') {
+      await sessionRevokeOthers(env.DB, auth.tokenHash);
       return done(json({ ok: true }));
     }
 
@@ -526,6 +557,8 @@ export default {
     }
 
     // ---------- 发信 ----------
+    // JSON：{ mb, to, cc, subject, text, html?, attachments?: [{ filename, ctype, content(base64) }] }
+    // text 和 html 至少填一个（只填 html 时纯文本版由 html 转出来）；附件解码后总共 ≤ 10MB。
     if (path === '/api/send' && method === 'POST') {
       const body = await readJson(req);
       if (body === null) return err('请求体不是合法 JSON。');
@@ -534,16 +567,30 @@ export default {
       const to = splitAddrs(body.to || '');
       const cc = splitAddrs(body.cc || '');
       const subject = String(body.subject || '');
-      const text = String(body.text || '');
+      const html = String(body.html || '');
+      let text = String(body.text || '');
+      if (text === '' && html !== '') text = htmlToText(html);
       if (to.length === 0) return err('收件人没填对。');
-      if (text === '') return err('正文是空的。');
+      if (text === '' && html === '') return err('正文是空的。');
+      const atts = [];
+      let attTotal = 0;
+      if (Array.isArray(body.attachments)) {
+        for (const a of body.attachments) {
+          if (!a || typeof a.filename !== 'string' || typeof a.content !== 'string') continue;
+          const bytes = b64ToBytes(a.content);
+          if (!bytes || bytes.length === 0) continue;
+          attTotal += bytes.length;
+          if (attTotal > 10 * 1024 * 1024) return err('附件总共不能超过 10MB。');
+          atts.push({ filename: a.filename, ctype: String(a.ctype || 'application/octet-stream'), bytes });
+        }
+      }
       const pass = await decryptMailboxPass(mb, credKey);
       if (!pass) return err('这个邮箱没有存凭据，请重新添加。');
       const fromAddr = mb.address || mb.email;
       const fromName = String(body.from_name || '').trim();
       const res = await smtpSend({
         host: mb.smtp_host, port: mb.smtp_port, enc: mb.smtp_enc || 'tls',
-        from: fromAddr, fromName, pass, to, cc, subject, body: text,
+        from: fromAddr, fromName, pass, to, cc, subject, body: text, html, attachments: atts,
       });
       if (!res.ok) return done(err(res.err));
       // 尽力把副本存进已发送（失败不影响“已发出”的结果）。
@@ -553,7 +600,7 @@ export default {
           try {
             const opened = await client.openFolder('sent', map);
             if (opened.ok) {
-              const raw = buildSentRaw(fromAddr, fromName, to, cc, subject, text);
+              const raw = buildSentRaw(fromAddr, fromName, to, cc, subject, text, { html, attachments: atts });
               await client.append(opened.name, te.encode(raw));
             }
           } finally {

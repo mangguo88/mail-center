@@ -16,7 +16,35 @@ function rfc2047Encode(s) {
   return '=?UTF-8?B?' + b64(s) + '?=';
 }
 
-export function buildSentRaw(from, fromName, to, cc, subject, body) {
+function b64Bytes(bytes) {
+  let bin = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(bin).replace(/.{76}/g, '$&\r\n');
+}
+
+function b64Text(str) {
+  return b64Bytes(te.encode(str));
+}
+
+function boundaryStr(prefix) {
+  const rnd = [...crypto.getRandomValues(new Uint8Array(12))].map((b) => b.toString(16).padStart(2, '0')).join('');
+  return prefix + rnd;
+}
+
+// 附件文件名参数：纯 ASCII 直接引起来，非 ASCII 用 RFC 2231（参数名本身带星号）。
+function mimeFilenameParam(paramName, fname) {
+  const name = String(fname || 'attachment');
+  if (/^[\x20-\x7E]+$/.test(name) && !/["\\]/.test(name)) return `${paramName}="${name}"`;
+  return `${paramName}*=UTF-8''${encodeURIComponent(name)}`;
+}
+
+// opts: { html?: string, attachments?: [{ filename, ctype, bytes: Uint8Array }] }
+// 无 HTML、无附件时和原来一样：单段 text/plain；有 HTML 用 multipart/alternative；
+// 有附件再包一层 multipart/mixed。
+export function buildSentRaw(from, fromName, to, cc, subject, body, opts = {}) {
   const fromNameTrim = (fromName || '').trim();
   let fromHdr = from;
   if (fromNameTrim !== '') {
@@ -41,10 +69,51 @@ export function buildSentRaw(from, fromName, to, cc, subject, body) {
   const rnd = [...crypto.getRandomValues(new Uint8Array(16))].map((b) => b.toString(16).padStart(2, '0')).join('');
   headers.push(`Message-ID: <${rnd}@${domain}>`);
   headers.push('MIME-Version: 1.0');
-  headers.push('Content-Type: text/plain; charset=utf-8');
-  headers.push('Content-Transfer-Encoding: base64');
-  const b64body = btoa(String.fromCharCode(...te.encode(body))).replace(/.{76}/g, '$&\r\n');
-  return headers.join('\r\n') + '\r\n\r\n' + b64body;
+  const html = String(opts.html || '');
+  const atts = (opts.attachments || []).filter((a) => a && a.bytes && a.bytes.length > 0);
+  if (!html && atts.length === 0) {
+    headers.push('Content-Type: text/plain; charset=utf-8');
+    headers.push('Content-Transfer-Encoding: base64');
+    return headers.join('\r\n') + '\r\n\r\n' + b64Text(body || '');
+  }
+  // 文本 + HTML 二选一（alternative）
+  const altBoundary = boundaryStr('mc-alt-');
+  const altParts = [];
+  altParts.push('--' + altBoundary);
+  altParts.push('Content-Type: text/plain; charset=utf-8');
+  altParts.push('Content-Transfer-Encoding: base64');
+  altParts.push('');
+  altParts.push(b64Text(body || ''));
+  if (html) {
+    altParts.push('--' + altBoundary);
+    altParts.push('Content-Type: text/html; charset=utf-8');
+    altParts.push('Content-Transfer-Encoding: base64');
+    altParts.push('');
+    altParts.push(b64Text(html));
+  }
+  altParts.push('--' + altBoundary + '--');
+  const altBody = altParts.join('\r\n');
+  if (atts.length === 0) {
+    headers.push(`Content-Type: multipart/alternative; boundary="${altBoundary}"`);
+    return headers.join('\r\n') + '\r\n\r\n' + altBody;
+  }
+  const mixBoundary = boundaryStr('mc-mix-');
+  headers.push(`Content-Type: multipart/mixed; boundary="${mixBoundary}"`);
+  const parts = [];
+  parts.push('--' + mixBoundary);
+  parts.push(`Content-Type: multipart/alternative; boundary="${altBoundary}"`);
+  parts.push('');
+  parts.push(altBody);
+  for (const a of atts) {
+    parts.push('--' + mixBoundary);
+    parts.push(`Content-Type: ${a.ctype || 'application/octet-stream'}; ${mimeFilenameParam('name', a.filename)}`);
+    parts.push('Content-Transfer-Encoding: base64');
+    parts.push(`Content-Disposition: attachment; ${mimeFilenameParam('filename', a.filename)}`);
+    parts.push('');
+    parts.push(b64Bytes(a.bytes));
+  }
+  parts.push('--' + mixBoundary + '--');
+  return headers.join('\r\n') + '\r\n\r\n' + parts.join('\r\n');
 }
 
 class SmtpReader {
@@ -90,7 +159,8 @@ function withTimeout(promise, ms) {
 }
 
 // 发一封邮件。返回 {ok, err}，错误中文、不带凭据。
-export async function smtpSend({ host, port, enc = 'tls', from, fromName = '', pass, to, cc = [], subject, body }) {
+// opts 可带 html（富文本正文）与 attachments（[{ filename, ctype, bytes }]）。
+export async function smtpSend({ host, port, enc = 'tls', from, fromName = '', pass, to, cc = [], subject, body, html = '', attachments = [] }) {
   const toList = [...new Set([...to, ...cc].map((x) => (x || '').trim()).filter(Boolean))];
   const toOnly = [...new Set(to.map((x) => (x || '').trim()).filter(Boolean))];
   if (!host || !port || !from || !pass || toOnly.length === 0) {
@@ -191,7 +261,7 @@ export async function smtpSend({ host, port, enc = 'tls', from, fromName = '', p
       await close();
       return { ok: false, err: '服务器拒绝进入 DATA 阶段。' };
     }
-    const raw = buildSentRaw(from, fromName, toOnly, cc, subject, body);
+    const raw = buildSentRaw(from, fromName, toOnly, cc, subject, body, { html, attachments });
     const lines = raw.split('\r\n').map((ln) => (ln.startsWith('.') ? '.' + ln : ln));
     let msg = lines.join('\r\n');
     if (!msg.endsWith('\r\n')) msg += '\r\n';

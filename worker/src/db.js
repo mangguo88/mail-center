@@ -109,3 +109,8 @@ export async function sessionRevoke(db, tokenHash = null) {
     await db.prepare('DELETE FROM sessions WHERE token_hash = ?1').bind(tokenHash).run();
   }
 }
+
+// 退出所有记住的设备：删掉除当前会话外的全部会话（当前浏览器不断线）。
+export async function sessionRevokeOthers(db, tokenHash) {
+  await db.prepare('DELETE FROM sessions WHERE token_hash != ?1').bind(tokenHash).run();
+}

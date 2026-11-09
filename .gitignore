@@ -10,3 +10,7 @@ preview-*.webp
 preview-*.png
 *.tgz
 .DS_Store
+
+# Worker 本地开发：wrangler dev 的本地 D1/KV/R2 状态与依赖
+worker/.wrangler/
+worker/node_modules/
