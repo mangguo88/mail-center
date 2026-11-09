@@ -1,0 +1,21 @@
+name = "mangguo-mail"
+main = "src/index.js"
+compatibility_date = "2026-11-08"
+
+# 容器：一个实例，跑 Dockerfile 里的 PHP + Nginx
+[[containers]]
+class_name = "MailCenter"
+image = "./Dockerfile"
+max_instances = 1
+
+[[durable_objects.bindings]]
+name = "MAIL_CENTER"
+class_name = "MailCenter"
+
+[exports.MailCenter]
+type = "durable-object"
+storage = "sqlite"
+
+# 每 5 分钟触发一次 TG 新邮件轮询（src/index.js 里的 scheduled 处理）
+[triggers]
+crons = ["*/5 * * * *"]

@@ -1,0 +1,55 @@
+# 邮箱管理中心 — GitHub Actions 部署到 Cloudflare Containers
+# push 到 main（或手动点 Run workflow）就部署：php -l 检查 → wrangler deploy
+# （wrangler 在 runner 里用 Docker  build 镜像并推到 Cloudflare）。
+#
+# 仓库 Secrets（Settings → Secrets and variables → Actions）：
+#   CLOUDFLARE_API_TOKEN  有 Workers + R2 权限的 API Token
+#   CLOUDFLARE_ACCOUNT_ID  Cloudflare 账号 ID
+#
+# 部署完还要在 Worker 里加 Secrets（进仓库目录跑 wrangler secret put）：
+#   R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET
+#   TG_KEY（和站点设置页里的 tg_key 填同一个值）
+name: Deploy to Cloudflare Containers
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'manage/**'
+      - 'Dockerfile'
+      - 'wrangler.toml'
+      - 'src/**'
+      - 'cf/**'
+      - 'package.json'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+
+      - name: Syntax check (php -l)
+        run: |
+          for f in manage/index.php manage/imap.php manage/oauth.php manage/ms_oauth.php manage/henna.php manage/cloudmail.php cf/r2store.php cf/r2-backup.php cf/r2-restore.php; do
+            php -l "$f"
+          done
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install deps
+        run: npm install
+
+      - name: Deploy with Wrangler
+        run: npx wrangler deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

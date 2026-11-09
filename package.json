@@ -1,0 +1,1 @@
+{"description":"邮箱管理中心 — Cloudflare Containers 部署（Worker 转发 + 容器跑 PHP）","devDependencies":{"@cloudflare/containers":"latest","wrangler":"^4"},"name":"mangguo-mail","private":true,"scripts":{"deploy":"wrangler deploy","dev":"wrangler dev"},"version":"4.28.2"}

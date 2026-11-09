@@ -1,0 +1,49 @@
+# 邮箱管理中心 — GitHub Actions 自动部署
+# push 到 main（或手动点 Run workflow）就把 manage/ 里的 6 个 PHP 文件推到服务器。
+# 不推 data/（里面有加密后的邮箱凭据和盐），不推 *.bak 和旧版文件。
+#
+# 仓库 Secrets（Settings → Secrets and variables → Actions）：
+#   SSH_HOST    服务器地址，如 VPS 的 IP 或域名；推 Serv00 就填 dkuwfoo.serv00.net
+#   SSH_USER    登录用户，如 root / ubuntu；推 Serv00 就填 dkuwfoo
+#   SSH_KEY     部署用的 SSH 私钥（先把对应公钥加到服务器 ~/.ssh/authorized_keys）
+#   SSH_PORT    默认 22
+#   TARGET_DIR  网站根目录，如 /var/www/mail；推 Serv00 就填 ~/domains/mangguo.lele.pp.ua/public_html
+name: Deploy mail center
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'manage/**'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.2'
+
+      - name: Syntax check (php -l)
+        run: |
+          for f in manage/index.php manage/imap.php manage/oauth.php manage/ms_oauth.php manage/henna.php manage/cloudmail.php; do
+            php -l "$f"
+          done
+
+      - name: Deploy to server
+        uses: easingthemes/ssh-deploy@v5.1.0
+        with:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_KEY }}
+          SOURCE: "manage/"
+          REMOTE_HOST: ${{ secrets.SSH_HOST }}
+          REMOTE_USER: ${{ secrets.SSH_USER }}
+          REMOTE_PORT: ${{ secrets.SSH_PORT }}
+          TARGET: ${{ secrets.TARGET_DIR }}
+          EXCLUDE: "data/, *.bak, henna-v4.27.*.php, *.md"
+          ARGS: "-az"
+          SCRIPT_AFTER: |
+            echo "deployed at $(date)"
