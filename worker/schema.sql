@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS mailboxes (
   panel_login TEXT NOT NULL DEFAULT '',
   panel_pass_enc TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'ok',
+  cache_version INTEGER NOT NULL DEFAULT 0,
   sort INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL DEFAULT 0
 );

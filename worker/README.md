@@ -5,8 +5,10 @@
 
 ## 目录
 
-- `wrangler.jsonc` — Worker 配置（D1 绑定 DB）
+- `wrangler.jsonc` — Worker 配置（D1 绑定 DB、KV 绑定 CACHE、R2 绑定 STORE）
 - `schema.sql` — D1 建表（site / mailboxes / cache / sessions）
+- `src/cache.js` — 收件箱列表缓存（KV）
+- `src/store.js` — 邮件全文与附件（R2）
 - `src/crypto.js` — Web Crypto 密钥派生与加解密
 - `src/mime.js` — 邮件头 / MIME 解析、摘要、地址解析
 - `src/imap.js` — IMAP 客户端（LOGIN、163 的 ID、UTF-7 文件夹、MOVE、APPEND）
@@ -24,8 +26,16 @@ npx wrangler login          # 浏览器点 Allow
 npx wrangler d1 create mail-center-db
 # 把输出里的 database_id 填进 wrangler.jsonc（替换 00000000-...）
 npx wrangler d1 execute mail-center-db --file=./schema.sql
+npx wrangler kv namespace create mail-center-cache
+# 把输出里的 id 填进 wrangler.jsonc 的 kv_namespaces（替换 00000000-...）
+npx wrangler r2 bucket create mail-center-store
 npx wrangler deploy
 ```
+
+KV 和 R2 都是可选的：没建的话把 `wrangler.jsonc` 里对应的 `kv_namespaces` /
+`r2_buckets` 两行删掉再部署，代码会自动回落（列表缓存走 D1、读信走 IMAP），
+Worker 不会崩。注意：`wrangler.jsonc` 里留着假的 `00000000-...` id 会部署失败，
+要么填真的，要么删掉那两行。
 
 之后每次改代码只要 `npx wrangler deploy`。
 
@@ -75,6 +85,18 @@ curl https://mail-center.<子域名>.workers.dev/api/mailboxes -b cookies.txt
 - 记住我 90/180/365 天：Cookie 只放令牌原文（HttpOnly），D1 只存令牌 SHA-256 +
   用令牌加密的派生密钥 + 过期时间；改站点密码后全部会话作废。
 
+## 存储分工：KV / R2 / D1 各管什么
+
+| 存什么 | 放哪 | 为什么 |
+| --- | --- | --- |
+| 收件箱列表缓存 | KV | 读是边缘缓存，最快；读多写少，写每天 1000 次够用；失效靠 D1 里的版本号 +1，不占 KV delete 额度 |
+| 邮件全文、附件 | R2 | 大文件；读过一次就存，重读/重下直接从 R2 拿，不用再连 IMAP；免费 10GB、每月 1000 万次读 |
+| 站点设置、邮箱配置、会话、已推记录 | D1 | 要查、要一致的小数据 |
+
+免费额度（都在免费计划里，不用开 Paid）：KV 每天 10 万读 / 1000 写；R2 10GB 存储、
+每月 100 万次写 / 1000 万次读；D1 每天 500 万行读 / 10 万行写。
+真正慢的是 IMAP 那头（拉新邮件要等邮箱服务器 1–2 秒），KV/R2 提速的是重读和列表缓存。
+
 ## 和 PHP 版不一样的地方
 
 - **加密换了算法**：PHP 用 sodium pwhash + secretbox，Worker 用 PBKDF2-SHA256
@@ -92,3 +114,6 @@ curl https://mail-center.<子域名>.workers.dev/api/mailboxes -b cookies.txt
   的摘要可能乱码，正文页是按字节取的，不受影响。
 - 列表一次最多 30 封，没有翻页；读信按 UID 取，不支持按序号。
 - 发信只支持纯文本正文（HTML 正文、附件随信发在 Phase 2 写信界面一起做）。
+- R2 存的全文是第一次读信时的快照：在别的客户端删了信，R2 里还有残留（列表是现取的，
+  删了的信不会再出现在列表里，残留只是占点空间）；删信/移信时经过管理中心的会顺手清掉。
+- 超过 10MB 的信不存 R2，只走 IMAP。

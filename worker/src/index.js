@@ -8,12 +8,14 @@ import {
 } from './crypto.js';
 import {
   getSite, saveSite, listMailboxes, getMailbox, saveMailbox, deleteMailbox,
-  cacheRead, cacheWrite, cacheClearMailbox,
+  cacheRead, cacheWrite, cacheClearMailbox, bumpCacheVersion,
   sessionIssue, sessionGet, sessionTouch, sessionRevoke,
 } from './db.js';
 import { connectMailbox } from './imap.js';
 import { smtpSend, buildSentRaw } from './smtp.js';
 import { parseMime, bestBody, decodeHeader, parseAddressHeader } from './mime.js';
+import { kvCacheGet, kvCachePut } from './cache.js';
+import { getRaw, storeRaw, getAttachment, storeAttachment, deleteMessageStore } from './store.js';
 
 const te = new TextEncoder();
 const td = new TextDecoder();
@@ -126,6 +128,37 @@ async function issueSession(env, site, password, rememberDays) {
   await sessionIssue(env.DB, { tokenHash, keyEnc, days: expiresDays, pwHash: site.pass_hash });
   const maxAge = days ? days * 86400 : undefined;
   return { hex, maxAge, credKey };
+}
+
+// 列表缓存失效：D1 版本号 +1（KV 旧 key 自然失效）+ 清 D1 缓存。
+async function invalidateMailboxCache(env, mbId) {
+  await bumpCacheVersion(env.DB, mbId);
+  await cacheClearMailbox(env.DB, mbId);
+}
+
+// 把原始全文解析成读信页的 JSON（R2 命中和 IMAP 现取共用）。
+function messagePayload(uid, rawBytes) {
+  const rawStr = new TextDecoder('iso-8859-1').decode(rawBytes);
+  const parsed = parseMime(rawStr);
+  const body = bestBody(parsed);
+  const headers = parsed.headers;
+  const fromH = parseAddressHeader(decodeHeader(headers.from || ''));
+  const toH = parseAddressHeader(decodeHeader(headers.to || ''));
+  return {
+    ok: true,
+    uid,
+    date: headers.date || '',
+    subject: decodeHeader(headers.subject || ''),
+    from_name: fromH.name,
+    from_addr: fromH.addr,
+    from_raw: decodeHeader(headers.from || ''),
+    to: decodeHeader(headers.to || ''),
+    to_addr: toH.addr,
+    cc: decodeHeader(headers.cc || ''),
+    text: body.text,
+    html: body.html,
+    attachments: parsed.attachments,
+  };
 }
 
 function publicMailbox(mb) {
@@ -349,7 +382,7 @@ export default {
           next.panel_pass_enc = await encryptCred(body.panel_password, credKey);
         }
         await saveMailbox(env.DB, next);
-        await cacheClearMailbox(env.DB, id);
+        await invalidateMailboxCache(env, id);
         return done(json({ ok: true, mailbox: publicMailbox(next) }));
       }
 
@@ -380,9 +413,13 @@ export default {
       const folderLabel = url.searchParams.get('folder') || 'inbox';
       const refresh = url.searchParams.get('refresh') === '1';
       const ttl = site.cache_ttl ?? 1;
+      const version = mb.cache_version || 0;
       if (!refresh) {
+        // KV 快路径（边缘读）；没配 KV 或没命中再走 D1 缓存
+        const kvData = await kvCacheGet(env, mb.id, folderLabel, version);
+        if (kvData) return done(json({ ok: true, ...kvData, cached: true, store: 'kv' }));
         const cached = await cacheRead(env.DB, mb.id, folderLabel, ttl);
-        if (cached) return done(json({ ok: true, ...cached, cached: true }));
+        if (cached) return done(json({ ok: true, ...cached, cached: true, store: 'd1' }));
       }
       const pass = await decryptMailboxPass(mb, credKey);
       if (!pass) return err('这个邮箱没有存凭据，请重新添加。');
@@ -400,9 +437,10 @@ export default {
         const list = await client.fetchList(latest);
         const payload = { list, total: opened.exists, folders: map, cached_at: new Date().toISOString() };
         await cacheWrite(env.DB, mb.id, folderLabel, payload);
+        await kvCachePut(env, mb.id, folderLabel, version, payload, ttl);
         const next = { ...mb, status: 'ok' };
         await saveMailbox(env.DB, next);
-        return done(json({ ok: true, ...payload, cached: false }));
+        return done(json({ ok: true, ...payload, cached: false, store: 'imap' }));
       } finally {
         await client.close();
       }
@@ -415,6 +453,11 @@ export default {
       const folderLabel = url.searchParams.get('folder') || 'inbox';
       const uid = parseInt(url.searchParams.get('uid') || '0', 10);
       if (!uid) return err('uid 不对。');
+      // R2 快路径：这封以前读过就直接从 R2 拿，不用连 IMAP（首次读已标已读）
+      const r2Raw = await getRaw(env, mb.id, folderLabel, uid);
+      if (r2Raw) {
+        return done(json({ ...messagePayload(uid, r2Raw), store: 'r2' }));
+      }
       const pass = await decryptMailboxPass(mb, credKey);
       if (!pass) return err('这个邮箱没有存凭据，请重新添加。');
       const { client, map, err: connErr } = await connectMailbox(mb, pass);
@@ -424,29 +467,10 @@ export default {
         if (!opened.ok) return done(err(`打不开文件夹：${opened.err || ''}`));
         const rawRes = await client.fetchRaw(uid);
         if (!rawRes.ok || !rawRes.raw) return done(err('取不到这封信，可能已经被删了。'));
-        const rawStr = new TextDecoder('iso-8859-1').decode(rawRes.raw);
-        const parsed = parseMime(rawStr);
-        const body = bestBody(parsed);
-        const headers = parsed.headers;
-        const fromH = parseAddressHeader(decodeHeader(headers.from || ''));
-        const toH = parseAddressHeader(decodeHeader(headers.to || ''));
+        await storeRaw(env, mb.id, folderLabel, uid, rawRes.raw);
         await client.markSeen(uid);
-        await cacheClearMailbox(env.DB, mb.id);
-        return done(json({
-          ok: true,
-          uid,
-          date: headers.date || '',
-          subject: decodeHeader(headers.subject || ''),
-          from_name: fromH.name,
-          from_addr: fromH.addr,
-          from_raw: decodeHeader(headers.from || ''),
-          to: decodeHeader(headers.to || ''),
-          to_addr: toH.addr,
-          cc: decodeHeader(headers.cc || ''),
-          text: body.text,
-          html: body.html,
-          attachments: parsed.attachments,
-        }));
+        await invalidateMailboxCache(env, mb.id);
+        return done(json({ ...messagePayload(uid, rawRes.raw), store: 'imap' }));
       } finally {
         await client.close();
       }
@@ -460,6 +484,15 @@ export default {
       const uid = parseInt(url.searchParams.get('uid') || '0', 10);
       const part = url.searchParams.get('part') || '';
       if (!uid || !part) return err('参数不对。');
+      // R2 快路径：附件以前下过就直接从 R2 拿
+      const attHit = await getAttachment(env, mb.id, folderLabel, uid, part);
+      if (attHit) {
+        const headers = new Headers();
+        headers.set('Content-Type', attHit.ctype);
+        headers.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(attHit.filename)}`);
+        headers.set('Content-Length', String(attHit.bytes.length));
+        return new Response(attHit.bytes, { headers });
+      }
       const pass = await decryptMailboxPass(mb, credKey);
       if (!pass) return err('这个邮箱没有存凭据，请重新添加。');
       const { client, map, err: connErr } = await connectMailbox(mb, pass);
@@ -467,14 +500,21 @@ export default {
       try {
         const opened = await client.openFolder(folderLabel, map);
         if (!opened.ok) return done(err('打不开文件夹。'));
-        const rawRes = await client.fetchRaw(uid);
-        if (!rawRes.ok || !rawRes.raw) return done(err('取不到这封信。'));
-        const rawStr = new TextDecoder('iso-8859-1').decode(rawRes.raw);
+        // 全文优先从 R2 拿（取附件元数据用），没有再走 IMAP
+        let rawBytes = await getRaw(env, mb.id, folderLabel, uid);
+        if (!rawBytes) {
+          const rawRes = await client.fetchRaw(uid);
+          if (!rawRes.ok || !rawRes.raw) return done(err('取不到这封信。'));
+          rawBytes = rawRes.raw;
+          await storeRaw(env, mb.id, folderLabel, uid, rawBytes);
+        }
+        const rawStr = new TextDecoder('iso-8859-1').decode(rawBytes);
         const parsed = parseMime(rawStr);
         const att = parsed.attachments.find((a) => a.part === part);
         if (!att) return done(err('找不到这个附件。', 404));
         const partRes = await client.fetchPart(uid, part);
         if (!partRes.ok || !partRes.bytes) return done(err('附件下载失败。'));
+        await storeAttachment(env, mb.id, folderLabel, uid, part, partRes.bytes, att.ctype, att.filename);
         const headers = new Headers();
         headers.set('Content-Type', att.ctype || 'application/octet-stream');
         headers.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(att.filename || 'attachment')}`);
@@ -521,7 +561,7 @@ export default {
           }
         }
       } catch { /* append 失败不报错 */ }
-      await cacheClearMailbox(env.DB, mb.id);
+      await invalidateMailboxCache(env, mb.id);
       return done(json({ ok: true }));
     }
 
@@ -563,7 +603,10 @@ export default {
             if (!d.ok) return done(err(d.err));
           }
         }
-        await cacheClearMailbox(env.DB, mb.id);
+        if (path === '/api/move' || path === '/api/delete') {
+          await deleteMessageStore(env, mb.id, folderLabel, uid);
+        }
+        await invalidateMailboxCache(env, mb.id);
         return done(json({ ok: true }));
       } finally {
         await client.close();

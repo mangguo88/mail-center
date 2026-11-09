@@ -38,6 +38,11 @@ export async function saveMailbox(db, mb) {
   ).run();
 }
 
+// 列表缓存版本号 +1（KV 失效用）：改动后旧 KV key 自然没人读，不占 KV delete 额度。
+export async function bumpCacheVersion(db, id) {
+  await db.prepare('UPDATE mailboxes SET cache_version = cache_version + 1 WHERE id = ?1').bind(id).run();
+}
+
 export async function deleteMailbox(db, id) {
   await db.prepare('DELETE FROM mailboxes WHERE id = ?1').bind(id).run();
   await db.prepare('DELETE FROM cache WHERE mailbox_id = ?1').bind(id).run();
