@@ -437,6 +437,12 @@ export default {
       return done(json({ ok: true, folders: folders.map((f) => f.name), map }));
     }
 
+// IMAP FETCH 回包按 UID 升序，列表统一按 UID 从新到旧排（新邮件在前）
+function sortNewestFirst(list) {
+  if (Array.isArray(list)) list.sort((a, b) => (b.uid || 0) - (a.uid || 0));
+  return list;
+}
+
     // ---------- 收件箱列表（带 1 分钟缓存） ----------
     if (path === '/api/inbox' && method === 'GET') {
       const mb = await getMailbox(env.DB, url.searchParams.get('mb') || '');
@@ -448,9 +454,9 @@ export default {
       if (!refresh) {
         // KV 快路径（边缘读）；没配 KV 或没命中再走 D1 缓存
         const kvData = await kvCacheGet(env, mb.id, folderLabel, version);
-        if (kvData) return done(json({ ok: true, ...kvData, cached: true, store: 'kv' }));
+        if (kvData) { sortNewestFirst(kvData.list); return done(json({ ok: true, ...kvData, cached: true, store: 'kv' })); }
         const cached = await cacheRead(env.DB, mb.id, folderLabel, ttl);
-        if (cached) return done(json({ ok: true, ...cached, cached: true, store: 'd1' }));
+        if (cached) { sortNewestFirst(cached.list); return done(json({ ok: true, ...cached, cached: true, store: 'd1' })); }
       }
       const pass = await decryptMailboxPass(mb, credKey);
       if (!pass) return err('这个邮箱没有存凭据，请重新添加。');
@@ -465,7 +471,7 @@ export default {
         if (!opened.ok) return done(err(`打不开文件夹：${opened.err || '服务器没有这个文件夹。'}`));
         const allUids = await client.uids();
         const latest = allUids.slice(-30).reverse();
-        const list = await client.fetchList(latest);
+        const list = sortNewestFirst(await client.fetchList(latest));
         const payload = { list, total: opened.exists, folders: map, cached_at: new Date().toISOString() };
         await cacheWrite(env.DB, mb.id, folderLabel, payload);
         await kvCachePut(env, mb.id, folderLabel, version, payload, ttl);

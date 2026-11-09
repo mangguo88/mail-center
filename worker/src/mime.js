@@ -208,7 +208,7 @@ export function parseMime(raw, partPrefix = '') {
       attachments: [{ part: partPrefix || '1', filename, size: data.length, ctype }],
     };
   }
-  const textOut = ctype === 'text/plain' || ctype.startsWith('text/') ? td.decode(data) : '';
+  const textOut = ctype === 'text/plain' ? td.decode(data) : '';
   const htmlOut = ctype === 'text/html' ? td.decode(data) : '';
   return { headers, text: textOut, html: htmlOut, attachments: [] };
 }
@@ -219,6 +219,9 @@ export function bestBody(parsed) {
   if (text.trim() !== '') return { text, html };
   if (html.trim() === '') return { text: '', html: '' };
   let t = html;
+  t = t.replace(/<head[\s\S]*?<\/head>/gi, '');
+  t = t.replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, '');
+  t = t.replace(/<!--[\s\S]*?-->/g, '');
   t = t.replace(/<(br\s*\/?|p|div|tr|li|h[1-4])[^>]*>/gi, '\n');
   t = t.replace(/<\/(p|div|tr|li|h[1-4])>/gi, '\n');
   t = t.replace(/<[^>]+>/g, '');

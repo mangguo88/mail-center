@@ -393,7 +393,7 @@ function openMbMenu(mbId, email, x, y) {
   menu.innerHTML =
     '<button type="button" data-act="edit">编辑</button>'
     + '<button type="button" data-act="compose">写信</button>'
-    + '<button type="button" data-act="copy">复制邮箱地址</button>'
+    + '<button type="button" data-act="copy">复制</button>'
     + '<button type="button" data-act="del" class="del">删除</button>';
   menu.classList.add('open');
   menu.style.left = Math.min(x, window.innerWidth - 150) + 'px';
