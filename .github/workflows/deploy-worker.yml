@@ -18,6 +18,7 @@ jobs:
       - working-directory: worker
         run: |
           npm ci
+          npx wrangler d1 execute mail-center-db --file=./schema.sql --remote
           npx wrangler deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
