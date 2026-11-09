@@ -120,6 +120,7 @@ const S = {
   me: null,            // { username, display_name }
   settings: null,      // GET /api/settings
   mailboxes: [],       // GET /api/mailboxes
+  groups: [],          // GET /api/groups：单独建的空分组（还没加邮箱也能先建好）
   unread: {},          // mbId -> 未读数（最新 30 封里数的，和 PHP 版一样）
   view: 'inbox',       // inbox | mailboxes | settings
   curMbId: null,
@@ -147,6 +148,21 @@ function groupsOf(mbs) {
   }
   return { order, map };
 }
+async function loadGroups() {
+  const d = await apiOk('/api/groups');
+  S.groups = d.groups || [];
+}
+
+// 分组 = 邮箱带出来的分组 + 单独建的空分组（还没加邮箱也能先建好）
+function allGroups() {
+  const { order, map } = groupsOf(S.mailboxes);
+  const out = order.map((g) => ({ name: g, count: map[g].length }));
+  for (const cg of S.groups || []) {
+    if (!out.some((x) => x.name === cg.name)) out.push({ name: cg.name, count: cg.count || 0 });
+  }
+  return out;
+}
+
 function curMailbox() { return S.mailboxes.find((m) => m.id === S.curMbId) || null; }
 function lsGet(k, def) { try { const v = localStorage.getItem(k); return v === null ? def : v; } catch (e) { return def; } }
 function lsSet(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* ignore */ } }
@@ -270,6 +286,7 @@ async function renderApp() {
   } catch (e) {
     return; // 401 时 api() 里已经跳回登录页
   }
+  try { await loadGroups(); } catch (e) { S.groups = []; } // 分组表没建好也不影响主界面
   renderSidebar();
   renderMain();
   wireSideResizer();
@@ -1049,7 +1066,10 @@ const MB_PRESETS = {
 let MB_EDIT_ID = '';
 
 function renderMailboxesView(main) {
-  const { order, map } = groupsOf(S.mailboxes);
+  const all = allGroups();
+  const order = all.map((x) => x.name);
+  const counts = {};
+  all.forEach((x) => { counts[x.name] = x.count; });
   let h = '<div class="card"><h2>邮箱管理</h2>'
     + '<p class="muted">这里只管“有哪些邮箱、能不能连上”。要看信，点左栏「我的邮箱」里点一个邮箱直接打开；要写信，点左栏「写信」。</p>';
   h += '</div>';
@@ -1082,11 +1102,16 @@ function renderMailboxesView(main) {
     h += '<p class="muted">还没有邮箱，点上面「＋ 添加邮箱」加第一个吧。建议先加 QQ（用授权码），再加 Outlook / Gmail。</p>';
   } else {
     h += '<div class="folders"><a class="' + (S.mbFilter === '' ? 'on' : '') + '" data-gf="">全部（' + S.mailboxes.length + '）</a>'
-      + order.map((g) => '<a class="' + (S.mbFilter === g ? 'on' : '') + '" data-gf="' + esc(g) + '">' + esc(g) + '（' + map[g].length + '）</a>').join('') + '</div>';
+      + order.map((g) => '<a class="' + (S.mbFilter === g ? 'on' : '') + '" data-gf="' + esc(g) + '">' + esc(g) + '（' + counts[g] + '）</a>').join('') + '</div>'
+      + '<p class="muted">' + (S.mbFilter !== '' ? '只看"' + esc(S.mbFilter) + '"分组的邮箱，点"全部"或表格里「分组」列头的 ▾ 换分组。' : '点上面某个分组，或点表格里「分组」列头的 ▾，就只列出该分组的邮箱。') + '</p>';
     h += '<div style="border:1px solid #e7e5e4;border-radius:8px;padding:12px;margin:0 0 12px"><strong>分组管理</strong> <span class="muted">改一个分组名，这个分组里的邮箱一起跟着改，不用一个个改。</span>'
-      + order.map((g) => '<div style="display:flex;gap:8px;align-items:center;margin:8px 0 0;flex-wrap:wrap"><span style="width:180px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(g) + '（' + map[g].length + '）">' + esc(g) + '（' + map[g].length + '）</span><span class="muted">改成</span><input type="text" class="gname-input" data-group="' + esc(g) + '" value="' + esc(g) + '" style="width:130px;padding:6px 8px;border:1px solid #e7e5e4;border-radius:6px;font-size:14px"><button class="btn ghost sm" data-rename="' + esc(g) + '">改分组名</button></div>').join('')
+      + order.map((g) => '<div style="display:flex;gap:8px;align-items:center;margin:8px 0 0;flex-wrap:wrap"><span style="width:180px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(g) + '（' + counts[g] + '）">' + esc(g) + '（' + counts[g] + '）</span><span class="muted">改成</span><input type="text" class="gname-input" data-group="' + esc(g) + '" value="' + esc(g) + '" style="width:130px;padding:6px 8px;border:1px solid #e7e5e4;border-radius:6px;font-size:14px"><button class="btn ghost sm" data-rename="' + esc(g) + '">改分组名</button>' + (counts[g] === 0 ? ' <button class="btn danger sm" data-delgroup="' + esc(g) + '">删除分组</button>' : '') + '</div>').join('')
+      + '<div style="display:flex;gap:8px;align-items:center;margin:8px 0 0;flex-wrap:wrap"><span style="width:180px;flex:none" class="muted">新建分组</span><input type="text" id="newGroupInput" placeholder="新分组名" style="width:130px;padding:6px 8px;border:1px solid #e7e5e4;border-radius:6px;font-size:14px"><button class="btn ghost sm" id="newGroupBtn">新建分组</button></div>'
       + '</div>';
-    h += '<div class="tablewrap"><table><tr><th>邮箱</th><th>分组</th><th>登录方式</th><th>IMAP</th><th>状态</th><th>操作</th></tr><tbody>';
+    h += '<div class="tablewrap"><table><tr><th>邮箱</th><th><details class="gpick"><summary title="点一下按分组筛选">分组' + (S.mbFilter !== '' ? '：' + esc(S.mbFilter) : '') + ' <span class="fold">▾</span></summary><div class="gmenu">'
+      + (S.mbFilter === '' ? '<span class="gcur">✓ 全部（' + S.mailboxes.length + '）</span>' : '<a href="#" data-gf="">全部（' + S.mailboxes.length + '）</a>')
+      + all.map((x) => (x.name === S.mbFilter ? '<span class="gcur">✓ ' + esc(x.name) + '（' + x.count + '）</span>' : '<a href="#" data-gf="' + esc(x.name) + '">' + esc(x.name) + '（' + x.count + '）</a>')).join('')
+      + '</div></details></th><th>登录方式</th><th>IMAP</th><th>状态</th><th>操作</th></tr><tbody>';
     for (const m of S.mailboxes) {
       const g = groupOf(m);
       if (S.mbFilter !== '' && g !== S.mbFilter) continue;
@@ -1105,7 +1130,7 @@ function renderMailboxesView(main) {
 
   main.innerHTML = h;
   // 分组筛选
-  $$('#main [data-gf]').forEach((a) => a.addEventListener('click', () => { S.mbFilter = a.getAttribute('data-gf'); renderMailboxesView(main); }));
+  $$('#main [data-gf]').forEach((a) => a.addEventListener('click', (e) => { e.preventDefault(); S.mbFilter = a.getAttribute('data-gf'); renderMailboxesView(main); }));
   // 改分组名
   $$('#main [data-rename]').forEach((b) => b.addEventListener('click', async () => {
     const oldG = b.getAttribute('data-rename');
@@ -1114,13 +1139,39 @@ function renderMailboxesView(main) {
     if (!newG || newG === oldG) { toast('分组名没变。'); return; }
     b.disabled = true;
     try {
-      const mbs = S.mailboxes.filter((m) => groupOf(m) === oldG);
-      await Promise.all(mbs.map((m) => apiOk('/api/mailboxes/' + encodeURIComponent(m.id), { method: 'PUT', body: JSON.stringify({ group_name: newG }) })));
+      await apiOk('/api/groups/' + encodeURIComponent(oldG), { method: 'PUT', body: JSON.stringify({ new_name: newG }) });
       await loadMailboxes();
+      await loadGroups();
       renderSidebar();
       renderMailboxesView(main);
       toast('分组已改名。');
     } catch (err) { toast(err.message || '改名失败。'); b.disabled = false; }
+  }));
+  // 新建分组
+  const ngBtn = $('#newGroupBtn');
+  if (ngBtn) ngBtn.addEventListener('click', async () => {
+    const input = $('#newGroupInput');
+    const name = input ? input.value.trim() : '';
+    if (!name) { toast('先填分组名。'); return; }
+    ngBtn.disabled = true;
+    try {
+      await apiOk('/api/groups', { method: 'POST', body: JSON.stringify({ name }) });
+      await loadGroups();
+      renderMailboxesView(main);
+      toast('分组已加上。');
+    } catch (err) { toast(err.message || '新建分组失败。'); ngBtn.disabled = false; }
+  });
+  // 删除空分组
+  $$('#main [data-delgroup]').forEach((b) => b.addEventListener('click', async () => {
+    const g = b.getAttribute('data-delgroup');
+    if (!confirm('删除分组"' + g + '"吗？这个分组里没有邮箱。')) return;
+    try {
+      await apiOk('/api/groups/' + encodeURIComponent(g), { method: 'DELETE' });
+      await loadGroups();
+      if (S.mbFilter === g) S.mbFilter = '';
+      renderMailboxesView(main);
+      toast('分组已删除。');
+    } catch (err) { toast(err.message || '删除失败。'); }
   }));
   // 表格内改分组（点标签变输入框）
   $$('#main .gtag-cell').forEach((tag) => tag.addEventListener('click', () => {

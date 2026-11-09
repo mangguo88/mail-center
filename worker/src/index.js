@@ -8,6 +8,7 @@ import {
 } from './crypto.js';
 import {
   getSite, saveSite, listMailboxes, getMailbox, saveMailbox, deleteMailbox,
+  listGroups, saveGroup, deleteGroup, renameGroup, countGroupMailboxes, groupDbName,
   cacheRead, cacheWrite, cacheClearMailbox, bumpCacheVersion,
   sessionIssue, sessionGet, sessionTouch, sessionRevoke, sessionRevokeOthers,
 } from './db.js';
@@ -424,6 +425,52 @@ export default {
       return err('接口不存在。', 404);
     }
 
+    // ---------- 分组（单独建的空分组：没加邮箱也能先建好） ----------
+    if (path === '/api/groups' && method === 'GET') {
+      const gs = await listGroups(env.DB);
+      const out = [];
+      for (const g of gs) out.push({ name: g.name, count: await countGroupMailboxes(env.DB, g.name) });
+      return done(json({ ok: true, groups: out }));
+    }
+
+    if (path === '/api/groups' && method === 'POST') {
+      const body = await readJson(req);
+      if (body === null) return err('请求体不是合法 JSON。');
+      const name = String(body.name || '').trim();
+      if (!name) return err('分组名不能为空。');
+      if (name.length > 40) return err('分组名太长了，40 个字以内。');
+      const mbs = await listMailboxes(env.DB);
+      if (mbs.some((m) => groupOfDb(m) === name)) return err('这个分组已经有了。');
+      const gs = await listGroups(env.DB);
+      if (gs.some((g) => g.name === name)) return err('这个分组已经有了。');
+      await saveGroup(env.DB, name);
+      return done(json({ ok: true }));
+    }
+
+    if (path.startsWith('/api/groups/') && (method === 'PUT' || method === 'DELETE')) {
+      const name = decodeURIComponent(path.slice('/api/groups/'.length));
+      if (!name) return err('分组名不对。', 404);
+      if (method === 'DELETE') {
+        const gs = await listGroups(env.DB);
+        if (!gs.some((g) => g.name === name)) return err('找不到这个分组。', 404);
+        if ((await countGroupMailboxes(env.DB, name)) > 0) return err('这个分组里还有邮箱，先把邮箱移走再删。');
+        await deleteGroup(env.DB, name);
+        return done(json({ ok: true }));
+      }
+      const body = await readJson(req);
+      if (body === null) return err('请求体不是合法 JSON。');
+      const newName = String(body.new_name || '').trim();
+      if (!newName) return err('新分组名不能为空。');
+      if (newName.length > 40) return err('分组名太长了，40 个字以内。');
+      if (newName === name) return err('分组名没变。');
+      const mbs = await listMailboxes(env.DB);
+      if (mbs.some((m) => groupOfDb(m) === newName)) return err('已经有同名分组了。');
+      const gs = await listGroups(env.DB);
+      if (gs.some((g) => g.name === newName)) return err('已经有同名分组了。');
+      await renameGroup(env.DB, name, newName);
+      return done(json({ ok: true }));
+    }
+
     // ---------- 文件夹 ----------
     if (path === '/api/folders' && method === 'GET') {
       const mb = await getMailbox(env.DB, url.searchParams.get('mb') || '');
@@ -436,6 +483,9 @@ export default {
       await client.close();
       return done(json({ ok: true, folders: folders.map((f) => f.name), map }));
     }
+
+// mailboxes 行的分组名（group_name 空串 = 未分组）
+function groupOfDb(mb) { return (mb.group_name || '').trim() || '未分组'; }
 
 // IMAP FETCH 回包按 UID 升序，列表统一按 UID 从新到旧排（新邮件在前）
 function sortNewestFirst(list) {

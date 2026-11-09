@@ -48,6 +48,40 @@ export async function deleteMailbox(db, id) {
   await db.prepare('DELETE FROM cache WHERE mailbox_id = ?1').bind(id).run();
 }
 
+// ---------- 分组（单独建的空分组：还没加邮箱也能先建好，放这里） ----------
+// “未分组”在 mailboxes 里存的是空串，改名 / 计数时要换算。
+export function groupDbName(name) { return (name || '').trim() === '未分组' ? '' : (name || '').trim(); }
+
+export async function listGroups(db) {
+  const { results } = await db.prepare('SELECT * FROM groups ORDER BY sort ASC, created_at ASC').all();
+  return results || [];
+}
+
+export async function saveGroup(db, name) {
+  const row = await db.prepare('SELECT COALESCE(MAX(sort), 0) AS m FROM groups').first();
+  const sort = (row ? row.m : 0) + 10;
+  await db.prepare(
+    `INSERT INTO groups (name, sort, created_at) VALUES (?1, ?2, ?3)
+     ON CONFLICT(name) DO NOTHING`,
+  ).bind(name, sort, Date.now()).run();
+}
+
+export async function deleteGroup(db, name) {
+  await db.prepare('DELETE FROM groups WHERE name = ?1').bind(name).run();
+}
+
+export async function renameGroup(db, oldName, newName) {
+  const oldDb = groupDbName(oldName);
+  const newDb = groupDbName(newName);
+  await db.prepare('UPDATE groups SET name = ?2 WHERE name = ?1').bind(oldName, newName).run();
+  await db.prepare('UPDATE mailboxes SET group_name = ?2 WHERE group_name = ?1').bind(oldDb, newDb).run();
+}
+
+export async function countGroupMailboxes(db, name) {
+  const row = await db.prepare('SELECT COUNT(*) AS c FROM mailboxes WHERE group_name = ?1').bind(groupDbName(name)).first();
+  return row ? row.c : 0;
+}
+
 // ---------- 收件箱缓存（默认 1 分钟，设置页可改） ----------
 export function cacheId(mbId, folder) {
   return `${mbId}__${folder}`.replace(/[^a-zA-Z0-9_-]/g, '_');
