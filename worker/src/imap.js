@@ -325,7 +325,7 @@ export class ImapClient {
         await this.writer.write(te.encode('\r\n'));
         continue;
       }
-      if (line.startsWith(tag + ' ')) return line.toUpperCase().includes(tag + ' OK');
+      if (line.startsWith(tag + ' ')) return line.toUpperCase().includes(tag.toUpperCase() + ' OK');
     }
     return false;
   }
@@ -346,7 +346,7 @@ export class ImapClient {
         break;
       }
     }
-    const ok = tagged !== '' && tagged.toUpperCase().startsWith(tag + ' OK');
+    const ok = tagged !== '' && tagged.toUpperCase().startsWith(tag.toUpperCase() + ' OK');
     const text = tagged ? tagged.slice(tag.length + 1).trim() : '';
     return { ok, lines, text, tagged };
   }
@@ -371,7 +371,7 @@ export class ImapClient {
         break;
       }
     }
-    const ok = tagged !== '' && tagged.toUpperCase().startsWith(tag + ' OK');
+    const ok = tagged !== '' && tagged.toUpperCase().startsWith(tag.toUpperCase() + ' OK');
     return { ok, bytes, tagged };
   }
 
@@ -669,7 +669,7 @@ export class ImapClient {
     while (guard++ < 100) {
       const line = await withTimeout(this.reader.readLogicalLine(), 20000, 'APPEND 超时').catch(() => null);
       if (line === null) return false;
-      if (line.startsWith(tag + ' ')) return line.toUpperCase().includes(tag + ' OK');
+      if (line.startsWith(tag + ' ')) return line.toUpperCase().includes(tag.toUpperCase() + ' OK');
     }
     return false;
   }
