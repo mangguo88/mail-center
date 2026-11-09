@@ -13,8 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && docker-php-ext-install mbstring sodium curl \
     && rm -rf /var/lib/apt/lists/*
 
-# 程序文件：只取 6 个正式文件，不要 *.bak 和旧版 henna-v4.27.*.php
-COPY manage/index.php manage/imap.php manage/oauth.php manage/ms_oauth.php manage/henna.php manage/cloudmail.php /var/www/html/
+# 程序文件：只取 7 个正式文件，不要 *.bak 和旧版 henna-v4.27.*.php（adapter-template.php 是模板，不进镜像）
+COPY manage/index.php manage/imap.php manage/oauth.php manage/ms_oauth.php manage/henna.php manage/cloudmail.php manage/adapters.php /var/www/html/
 # R2 同步脚本（放 web 根目录之外，容器内用）
 COPY cf/r2store.php cf/r2-backup.php cf/r2-restore.php /opt/mc/
 # Nginx 配置与启动脚本

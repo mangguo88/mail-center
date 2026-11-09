@@ -1,6 +1,6 @@
 # Mail 管理中心 — 部署说明（给 aa，Serv00 + SnappyMail）
 
-这是一个 PHP 小程序（`index.php` + `imap.php` + `oauth.php` + `ms_oauth.php` + `henna.php`，无数据库、无 Composer），
+这是一个 PHP 小程序（`index.php` + `imap.php` + `oauth.php` + `ms_oauth.php` + `henna.php` + `cloudmail.php` + `adapters.php`，无数据库、无 Composer），
 让你**只登一个页面**就能管所有邮箱、读信发信：
 左边栏目都在同一个页面里——收件箱 / 写信 / 邮箱管理 / 添加邮箱 / 设置，
 不用再分 `?admin` 和主站两个网址来回跳。
@@ -38,6 +38,9 @@ mangguo.lele.pp.ua/public_html/
   oauth.php            ← 微软 OAuth2 入口（Outlook / Hotmail 登录用，和 index.php 放一起）
   ms_oauth.php         ← 微软 OAuth2 共用函数（令牌换取 / 刷新 / XOAUTH2，和 index.php 放一起）
   henna.php            ← Henna 域名邮箱接入（走 Henna 的 HTTP API，没有 IMAP/SMTP，和 index.php 放一起）
+  cloudmail.php        ← Cloud Mail 域名邮箱接入（走 Cloud Mail 的 HTTP API，和 index.php 放一起）
+  adapters.php         ← 域名邮箱适配器注册表（v4.30，index.php 靠它认 Henna / Cloud Mail，和 index.php 放一起）
+  adapter-template.php ← 给别人抄的适配器模板，不用传上服务器
   README.md            ← 本文件
   CHANGELOG.md         ← 版本记录
   data/                ← 程序自动建，别删
@@ -200,7 +203,7 @@ Henna 面板（https://email.070605.xyz/）没有 IMAP / SMTP 服务器，邮件
 - **收件箱显示（v4.27.7）**：中文主题在 IMAP 里是按 `{字节数}` 字面量传的，旧版解析器不认，主题会显示成 `{69}` 这种标记——这版修了，中文主题、中文发件人名都正常显示；发件人名字如果只有一个英文字母（Henna 发出的信常写成 `e`），列表和读信页直接显示邮箱地址；正文摘要有的服务器放在引号里返回，这版也认了。写信正文不填也能发（v4.27.7 曾改成必填，aa 说测试信只填主题也要能发，v4.27.8 已撤掉）。
 - **没有 Henna 邮箱时**：原来的 IMAP 邮箱一动没动，行为和 v4.26 一模一样。
 
-更新时先备份、再传新文件（回滚命令见 CHANGELOG v4.27 一节）。`henna.php` 必须和 `index.php` 在同一个目录，缺了它 Henna 邮箱打不开、加 Henna 邮箱时会报 500。
+更新时先备份、再传新文件（回滚命令见 CHANGELOG v4.30 一节）。`henna.php`、`cloudmail.php`、`adapters.php` 必须和 `index.php` 在同一个目录，缺了 `adapters.php` 全站 500、缺了某个适配器文件对应的域名邮箱打不开。
 
 ## 文件清单
 
@@ -209,6 +212,9 @@ Henna 面板（https://email.070605.xyz/）没有 IMAP / SMTP 服务器，邮件
 - `manage/oauth.php` — 微软 OAuth2 入口（`?step=ms_start` / `ms_callback`，部署到 public_html 根目录，和 index.php 放一起）
 - `manage/ms_oauth.php` — 微软 OAuth2 共用函数（Client ID / Secret 读取、授权地址、令牌换取 / 刷新、XOAUTH2 认证串、令牌自动刷新）
 - `manage/henna.php` — Henna 域名邮箱接入（调 Henna 面板的 HTTP API 收发信，必须和 index.php 放一起）
+- `manage/cloudmail.php` — Cloud Mail 域名邮箱接入（调 Cloud Mail 面板的 HTTP API 收发信，必须和 index.php 放一起）
+- `manage/adapters.php` — 域名邮箱适配器注册表（v4.30：Henna / Cloud Mail 只是注册表里的两行；想加新的域名邮箱，照根目录 `ADAPTERS.md` 写一个适配器、注册表里加一行就行，必须和 index.php 放一起）
+- `manage/adapter-template.php` — 适配器模板（给别人抄的，不用传上服务器）
 - `manage/README.md` — 本文件
 - `manage/CHANGELOG.md` — 版本记录
 - 另行交付的 Henna 主题：`themes/Henna/styles.css`

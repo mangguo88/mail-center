@@ -27,7 +27,7 @@
 sudo apt update && sudo apt install -y nginx php8.2-fpm php8.2-mbstring php8.2-sodium certbot python3-certbot-nginx
 ```
 
-### 2. 传程序文件（只要这 6 个，放到网站根目录）
+### 2. 传程序文件（只要这 7 个，放到网站根目录）
 
 ```
 index.php        主程序
@@ -36,13 +36,14 @@ oauth.php        微软 OAuth2 入口
 ms_oauth.php     微软 OAuth2 共用函数
 henna.php        Henna 接入
 cloudmail.php    Cloud Mail 接入
+adapters.php     域名邮箱适配器注册表（v4.30，index.php 靠它认 Henna / Cloud Mail）
 ```
 
 不要传 `data/`（那是运行数据，下面说）、不要传 `*.bak` 和旧版 `henna-v4.27.*.php`。
 
 ```bash
 sudo mkdir -p /var/www/mail
-# 把上面 6 个文件传到 /var/www/mail（scp / rsync / GitHub Actions 都行）
+# 把上面 7 个文件传到 /var/www/mail（scp / rsync / GitHub Actions 都行）
 sudo chown -R www-data:www-data /var/www/mail
 ```
 

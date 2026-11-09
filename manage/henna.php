@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-// ---------- Henna 域名邮箱接入（v4.27） ----------
+// ---------- Henna 域名邮箱接入（v4.27，v4.30 起函数签名按 ADAPTERS.md 的统一表） ----------
 // Henna 面板（如 https://email.070605.xyz/）没有 IMAP/SMTP，邮件存在它自己的
 // D1 数据库里，只能走它自己的 HTTP API 收发。这里是管理中心调 Henna API
 // 的客户端，由 index.php 调用。只定义函数，不输出任何东西。
@@ -178,7 +178,8 @@ function henna_date_string($created): string {
 // （uid/seen/date/subject/from_name/from_addr/to/snippet/size）；
 // 失败返回 ['error' => ...]。
 // Henna 列表接口不给总数：total 就是这页取到的条数，不谎报还有下一页。
-function henna_fetch_list(string $panel, string $token, string $address, string $folder, int $page, int $per = 30): array {
+function henna_fetch_list(string $panel, string $token, $account_id, string $address, string $folder, int $page, int $per = 30): array {
+    // $account_id 是给 Cloud Mail 这类用的，Henna 没有这个概念，忽略。
     $boxmap = henna_folder_map();
     if (!isset($boxmap[$folder])) return ['rows' => [], 'total' => 0];
     if ($page < 1) $page = 1;
@@ -210,7 +211,7 @@ function henna_fetch_list(string $panel, string $token, string $address, string 
 // ['from','from_name','to','subject','date','text','html','attachments']，
 // attachments 每项是 ['id','filename','ctype','size']；失败返回 ['error' => ...]。
 // 注意：Henna 取全文时服务端自动把这封标成已读。
-function henna_fetch_message(string $panel, string $token, int $id): array {
+function henna_fetch_message(string $panel, string $token, $account_id, string $folder, int $id): array {
     if ($id <= 0) return ['error' => '邮件不存在。'];
     $res = henna_api($panel, $token, 'GET', '/message/' . $id);
     if (is_array($res) && isset($res['error'])) return ['error' => (string)$res['error']];
@@ -238,7 +239,8 @@ function henna_fetch_message(string $panel, string $token, int $id): array {
 }
 
 // 标已读（尽力而为，失败不报错；取全文时服务端本来就会标已读）。
-function henna_mark_read(string $panel, string $token, int $id): bool {
+function henna_mark_read(string $panel, string $token, $account_id, array $ids): bool {
+    $id = (int)($ids[0] ?? 0);
     if ($id <= 0) return false;
     $res = henna_api($panel, $token, 'POST', '/message/' . $id . '/read', []);
     return is_array($res) && !isset($res['error']);
@@ -246,7 +248,8 @@ function henna_mark_read(string $panel, string $token, int $id): bool {
 
 // 彻底删除一封 Henna 邮件（Henna 没有已删除，删了找不回来）。
 // 返回 [true/false, '人话原因']。
-function henna_delete(string $panel, string $token, int $id): array {
+function henna_delete(string $panel, string $token, $account_id, array $ids): array {
+    $id = (int)($ids[0] ?? 0);
     if ($id <= 0) return [false, '邮件不存在。'];
     $res = henna_api($panel, $token, 'DELETE', '/message/' . $id);
     if (is_array($res) && isset($res['error'])) return [false, (string)$res['error']];
@@ -255,7 +258,8 @@ function henna_delete(string $panel, string $token, int $id): array {
 
 // 附件下载：从 Henna 的 R2 流式取回。成功返回 ['ctype'=>..., 'body'=>...]，
 // 失败返回 ['error' => ...]。
-function henna_download(string $panel, string $token, int $att_id): array {
+function henna_download(string $panel, string $token, $account_id, array $att): array {
+    $att_id = (int)($att['id'] ?? 0);
     if ($att_id <= 0) return ['error' => '附件不存在。'];
     $r = henna_http($panel, $token, 'GET', '/message/attachment/' . $att_id);
     if (isset($r['error'])) return ['error' => $r['error']];
@@ -269,7 +273,7 @@ function henna_download(string $panel, string $token, int $att_id): array {
 // 经 Henna 发信（纯文本）。$to 里是收件人，抄送请调用方先并进 $to
 // （Henna 的 /send 没有抄送字段）。
 // 一个收件人走 /send，多个走 /send/bulk。返回 [true/false, '人话原因/渠道']。
-function henna_send(string $panel, string $token, string $from, array $to, string $subject, string $text): array {
+function henna_send(string $panel, string $token, $account_id, string $from, array $to, string $subject, string $text): array {
     $to = array_values(array_unique(array_filter(array_map('trim', $to), static function ($a) { return filter_var($a, FILTER_VALIDATE_EMAIL) !== false; })));
     if ($from === '' || empty($to)) return [false, '发件人或收件人没填对。'];
     $payload = ['from' => $from, 'to' => $to, 'subject' => $subject, 'text' => $text];

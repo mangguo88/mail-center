@@ -1,6 +1,6 @@
 <?php
 declare(strict_types=1);
-// ---------- Cloud Mail 域名邮箱接入（v4.28） ----------
+// ---------- Cloud Mail 域名邮箱接入（v4.28，v4.30 起函数签名按 ADAPTERS.md 的统一表） ----------
 // Cloud Mail 面板（如 https://cfmail.151819.xyz/，上游 maillab/cloud-mail）
 // 没有 IMAP/SMTP，邮件存在它自己的 D1 数据库里，只能走它自己的 HTTP API
 // 收发。这里是管理中心调 Cloud Mail API 的客户端，由 index.php 调用。
@@ -211,7 +211,7 @@ function cloudmail_row(array $it): array {
 // 成功返回 ['rows' => [...], 'total' => int]；失败返回 ['error' => ...]。
 // 游标翻页：第 1 页 emailId=0（不带游标），第 2 页起用上一页最后一封的
 // emailId 当游标（timeSort=0 时是“小于这个 id”，按 id 倒序取）。
-function cloudmail_fetch_list(string $panel, string $token, int $account_id, string $folder, int $page, int $per = 30): array {
+function cloudmail_fetch_list(string $panel, string $token, int $account_id, string $address, string $folder, int $page, int $per = 30): array {
     $typemap = cloudmail_folder_map();
     if (!isset($typemap[$folder])) return ['rows' => [], 'total' => 0];
     if ($page < 1) $page = 1;
@@ -291,7 +291,7 @@ function cloudmail_fetch_message(string $panel, string $token, int $account_id, 
 }
 
 // 标已读（尽力而为，失败不报错）。emailIds 是数字数组。
-function cloudmail_mark_read(string $panel, string $token, array $email_ids): bool {
+function cloudmail_mark_read(string $panel, string $token, $account_id, array $email_ids): bool {
     $ids = array_values(array_unique(array_map('intval', $email_ids)));
     if (empty($ids)) return false;
     $res = cloudmail_api($panel, $token, 'PUT', '/email/read', ['emailIds' => $ids]);
@@ -300,7 +300,7 @@ function cloudmail_mark_read(string $panel, string $token, array $email_ids): bo
 
 // 删除一封或多封 Cloud Mail 邮件（软删：从列表消失，没有垃圾箱可看）。
 // 返回 [true/false, '人话原因']。
-function cloudmail_delete(string $panel, string $token, array $email_ids): array {
+function cloudmail_delete(string $panel, string $token, $account_id, array $email_ids): array {
     $ids = array_values(array_unique(array_map('intval', $email_ids)));
     if (empty($ids)) return [false, '邮件不存在。'];
     $res = cloudmail_api($panel, $token, 'DELETE', '/email/delete?emailIds=' . implode(',', $ids));
@@ -339,8 +339,8 @@ function cloudmail_latest(string $panel, string $token, int $account_id, int $si
 
 // 附件下载：从 Cloud Mail 的 R2 取流。$key 是 attList 返回的 key。
 // 成功返回 ['ctype'=>..., 'body'=>...]，失败返回 ['error' => ...]。
-function cloudmail_download(string $panel, string $token, string $key): array {
-    $key = ltrim(trim($key), '/');
+function cloudmail_download(string $panel, string $token, $account_id, array $att): array {
+    $key = ltrim(trim((string)($att['key'] ?? '')), '/');
     if ($key === '') return ['error' => '附件不存在。'];
     $r = cloudmail_http($panel, $token, 'GET', '/oss/' . $key, null, true);
     if (isset($r['error'])) return ['error' => $r['error']];

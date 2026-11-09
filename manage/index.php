@@ -24,8 +24,10 @@ session_start();
 ini_set('display_errors', '0');
 require_once __DIR__ . '/imap.php';
 require_once __DIR__ . '/ms_oauth.php'; // 微软 OAuth2（Outlook / Hotmail），见 ms_oauth.php
-require_once __DIR__ . '/henna.php'; // Henna 域名邮箱（HTTP API，没有 IMAP/SMTP），见 henna.php
-require_once __DIR__ . '/cloudmail.php'; // Cloud Mail 域名邮箱（HTTP API，没有 IMAP/SMTP），见 cloudmail.php
+require_once __DIR__ . '/adapters.php'; // 域名邮箱适配器注册表（v4.30），见 adapters.php / ADAPTERS.md
+// 注册表里的每个适配器文件都加载进来（Henna / Cloud Mail 现在只是注册表里的两行）
+foreach (mc_api_adapters() as $mc_ad) { $mc_ad_file = __DIR__ . '/' . (string)($mc_ad['file'] ?? ''); if ($mc_ad_file !== __DIR__ . '/' && is_file($mc_ad_file)) require_once $mc_ad_file; }
+unset($mc_ad, $mc_ad_file);
 
 // ---------- 可改的配置（只改这里） ----------
 // 注意：Serv00 的 PHP 有 open_basedir 限制，只允许访问网站目录
@@ -458,9 +460,9 @@ function tg_check_all(string $key_b64, array $list, array $site): array {
     $checked = 0; $sent = 0; $notes = [];
     foreach ($list as $mb) {
         if (($mb['status'] ?? '') !== 'ok') continue;
-        // Henna / Cloud Mail 走 HTTP API，不走 IMAP，TG 新邮件轮询暂不推
-        // （v4.28 先跳过，不记失败；Cloud Mail 的 /email/latest 已备好，下一版接）
-        if (in_array((string)($mb['kind'] ?? 'imap'), ['henna', 'cloudmail'], true)) continue;
+        // 域名邮箱走 HTTP API，不走 IMAP，TG 新邮件轮询暂不推
+        // （先跳过，不记失败；Cloud Mail 的 /email/latest 已备好，下一版接）
+        if (mc_api_is_api_kind((string)($mb['kind'] ?? 'imap'))) continue;
         $checked++;
         $seen = [];
         $c = read_data_file(tg_seen_file((string)$mb['id']));
@@ -620,9 +622,9 @@ function render_add_form($draft, $edit_box, $edit_id, $return_tab = 'add', $bar 
   $cur_is_new = empty($form_group_servers) || ($cur_group !== '' && $cur_group !== '未分组' && !isset($form_groups[$cur_group]));
   // 当前厂商栏的默认值：当前分组有现成的服务器，就显示这个分组；否则自动识别
   $cur_provider = isset($form_group_servers[$cur_group]) ? 'group:' . $cur_group : 'auto';
-  // 正在改 Henna 邮箱：厂商栏默认选 Henna，Henna 字段默认显示
-  if (($draft['kind'] ?? ($edit_box['kind'] ?? '')) === 'henna') $cur_provider = 'henna';
-  if (($draft['kind'] ?? ($edit_box['kind'] ?? '')) === 'cloudmail') $cur_provider = 'cloudmail';
+  // 正在改域名邮箱：厂商栏默认选这个 kind，对应蓝框默认显示
+  $cur_kind = (string)($draft['kind'] ?? ($edit_box['kind'] ?? ''));
+  if (mc_api_is_api_kind($cur_kind)) $cur_provider = $cur_kind;
 ?>
         <div class="card">
           <?php if ($bar): ?><details class="addbar"<?= !empty($draft) ? ' open' : '' ?>><summary><span style="color:#16a34a">＋</span> 添加邮箱 <span class="fold">▾</span></summary>
@@ -641,33 +643,24 @@ function render_add_form($draft, $edit_box, $edit_id, $return_tab = 'add', $bar 
               <option value="163">网易 163（163.com）</option>
               <option value="126">网易 126（126.com）</option>
               <option value="custom">自定义服务器（自己填）</option>
-              <option value="henna"<?= $cur_provider === 'henna' ? ' selected' : '' ?>>Henna（域名邮箱）</option>
-              <option value="cloudmail"<?= $cur_provider === 'cloudmail' ? ' selected' : '' ?>>Cloud Mail（域名邮箱）</option>
+              <?php foreach (mc_api_adapters() as $mc_k => $mc_a): ?><option value="<?=e($mc_k)?>"<?= $cur_provider === $mc_k ? ' selected' : '' ?>><?=e(mc_api_label($mc_k))?>（域名邮箱）</option>
+              <?php endforeach; ?>
               <?php foreach (array_keys($form_group_servers) as $fg): ?><option value="group:<?=e($fg)?>" <?= $cur_provider === 'group:' . $fg ? 'selected' : '' ?>><?=e($fg)?>（分组）</option><?php endforeach; ?>
             </select>
             <p class="muted" id="outlookNote" style="display:none;color:#b45309">注意：Outlook 个人邮箱微软自 2024-09-16 起只认微软账号登录，密码 / 应用密码登不上；用下面「用微软账号登录添加」，不用填密码。</p>
-            <div id="hennaFields" style="border:1px solid #dbeafe;background:#eff6ff;border-radius:8px;padding:12px;margin:12px 0 0;<?= $cur_provider === 'henna' ? '' : 'display:none' ?>">
-              <strong>Henna 域名邮箱</strong>
-              <p class="muted" style="margin:4px 0 8px">Henna 面板没有 IMAP / SMTP，邮件存在它自己的数据库里；这里走 Henna 的 HTTP API 收发，不用填下面的 IMAP / SMTP 服务器。登录账号是登面板用的邮箱，一般和下面的邮箱地址一样，会自动填过去，不一样就自己改；密码也可以直接贴面板设置里的 API Key。</p>
-              <label>Henna 面板地址</label>
-              <input type="text" name="henna_panel" id="henna_panel" value="<?=e((string)($draft['henna_panel'] ?? ''))?>" placeholder="https://你的 Henna 面板地址">
-              <label>Henna 登录账号</label>
-              <input type="email" name="henna_login" id="henna_login" value="<?=e((string)($draft['henna_login'] ?? ''))?>" placeholder="登录 Henna 面板用的邮箱"<?= $cur_provider === 'henna' ? ' required' : '' ?>>
-              <label>Henna 登录密码</label>
-              <input type="text" name="henna_password" id="henna_password" autocomplete="new-password" value="<?=e((string)($draft['henna_password'] ?? $draft['cred'] ?? ''))?>" placeholder="Henna 面板登录密码"<?= $cur_provider === 'henna' ? ' required' : '' ?>>
-              <p class="muted" style="margin:8px 0 0">注意：Henna 没有已删除，删信就是彻底删除，删了找不回来。</p>
+            <?php foreach (mc_api_adapters() as $mc_k => $mc_a): $mc_cur = ($cur_provider === $mc_k); ?>
+            <div id="apiFields_<?=e($mc_k)?>" style="border:1px solid #dbeafe;background:#eff6ff;border-radius:8px;padding:12px;margin:12px 0 0;<?= $mc_cur ? '' : 'display:none' ?>">
+              <strong><?=e(mc_api_label($mc_k))?> 域名邮箱</strong>
+              <p class="muted" style="margin:4px 0 8px"><?=e(mc_api_meta($mc_k, 'about'))?></p>
+              <label><?=e(mc_api_meta($mc_k, 'panel_label', mc_api_label($mc_k) . ' 面板地址'))?></label>
+              <input type="text" name="panel_url" id="panel_url_<?=e($mc_k)?>" value="<?=e($mc_cur ? (string)($draft['panel_url'] ?? '') : '')?>" placeholder="<?=e(mc_api_meta($mc_k, 'panel_placeholder'))?>"<?= $mc_cur ? '' : ' disabled' ?>>
+              <label><?=e(mc_api_label($mc_k))?> 登录账号</label>
+              <input type="email" name="panel_login" id="panel_login_<?=e($mc_k)?>" value="<?=e($mc_cur ? (string)($draft['panel_login'] ?? '') : '')?>" placeholder="登录 <?=e(mc_api_label($mc_k))?> 面板用的邮箱"<?= $mc_cur ? ' required' : ' disabled' ?>>
+              <label><?=e(mc_api_label($mc_k))?> 登录密码</label>
+              <input type="text" name="panel_password" id="panel_password_<?=e($mc_k)?>" autocomplete="new-password" value="<?=e($mc_cur ? (string)($draft['panel_password'] ?? $draft['cred'] ?? '') : '')?>" placeholder="<?=e(mc_api_label($mc_k))?> 面板登录密码"<?= $mc_cur ? ' required' : ' disabled' ?>>
+              <?php if (mc_api_meta($mc_k, 'note') !== ''): ?><p class="muted" style="margin:8px 0 0"><?=e(mc_api_meta($mc_k, 'note'))?></p><?php endif; ?>
             </div>
-            <div id="cloudmailFields" style="border:1px solid #dbeafe;background:#eff6ff;border-radius:8px;padding:12px;margin:12px 0 0;<?= $cur_provider === 'cloudmail' ? '' : 'display:none' ?>">
-              <strong>Cloud Mail 域名邮箱</strong>
-              <p class="muted" style="margin:4px 0 8px">Cloud Mail 面板没有 IMAP / SMTP，邮件存在它自己的数据库里；这里走 Cloud Mail 的 HTTP API 收发，不用填下面的 IMAP / SMTP 服务器。登录账号是登面板用的那个用户账号（它名下可以有多个 @域名 地址），一般和下面的邮箱地址一样，会自动填过去，不一样就自己改；一个登录账号下的多个地址要一个一个加，每条只管一个地址。</p>
-              <label>Cloud Mail 面板地址</label>
-              <input type="text" name="cloudmail_panel" id="cloudmail_panel" value="<?=e((string)($draft['cloudmail_panel'] ?? ''))?>" placeholder="https://你的 Cloud Mail 面板地址">
-              <label>Cloud Mail 登录账号</label>
-              <input type="email" name="cloudmail_login" id="cloudmail_login" value="<?=e((string)($draft['cloudmail_login'] ?? ''))?>" placeholder="登录 Cloud Mail 面板用的邮箱"<?= $cur_provider === 'cloudmail' ? ' required' : '' ?>>
-              <label>Cloud Mail 登录密码</label>
-              <input type="text" name="cloudmail_password" id="cloudmail_password" autocomplete="new-password" value="<?=e((string)($draft['cloudmail_password'] ?? $draft['cred'] ?? ''))?>" placeholder="Cloud Mail 面板登录密码"<?= $cur_provider === 'cloudmail' ? ' required' : '' ?>>
-              <p class="muted" style="margin:8px 0 0">注意：Cloud Mail 只有收件箱和已发送，没有草稿、垃圾箱、已删除；删信就是从列表删掉，找不回来。发信走面板的 CF Email（要 Workers Paid）或 Resend，没配好发信会报错。</p>
-            </div>
+            <?php endforeach; ?>
             <label>邮箱地址</label>
             <input type="email" name="email" id="email" value="<?=e((string)($draft['email'] ?? ''))?>" placeholder="如 xxx@qq.com" required <?= $edit_box ? 'readonly' : '' ?>>
             <label>显示名称（可选，收件人看到的名字）</label>
@@ -679,7 +672,7 @@ function render_add_form($draft, $edit_box, $edit_id, $return_tab = 'add', $bar 
             </select>
             <input type="text" name="group_new" id="groupNew" value="<?=e($cur_is_new && $cur_group !== '未分组' ? $cur_group : '')?>" placeholder="输入新分组名，如 工作" style="margin-top:8px;<?= $cur_is_new ? '' : 'display:none' ?>">
             <p class="muted" style="margin:4px 0 0">选一个已创建的分组，下面的 IMAP / SMTP 服务器会自动填成这个分组里邮箱用的那套（比如选 DNSHE 就填 smtp.mail.v.cd），厂商栏也会同步改成这个分组；选“新建分组”就自己起个名字，服务器按邮箱地址自动识别，不对再手动改。</p>
-            <div id="methodRow"<?= in_array($cur_provider, ['henna', 'cloudmail'], true) ? ' style="display:none"' : '' ?>>
+            <div id="methodRow"<?= mc_api_is_api_kind($cur_provider) ? ' style="display:none"' : '' ?>>
             <label>登录方式（二选一，并排显示）</label>
             <?php $dm = (string)($draft['method'] ?? 'authcode'); ?>
             <div class="methods">
@@ -689,10 +682,10 @@ function render_add_form($draft, $edit_box, $edit_id, $return_tab = 'add', $bar 
               <small>平时登录邮箱的密码。QQ / Gmail / Outlook 开了两步验证后，服务器通常会拒收，报认证失败。</small></label>
             </div>
             </div>
-            <div id="credRow"<?= in_array($cur_provider, ['henna', 'cloudmail'], true) ? ' style="display:none"' : '' ?>>
+            <div id="credRow"<?= mc_api_is_api_kind($cur_provider) ? ' style="display:none"' : '' ?>>
             <label>密码 / 授权码</label>
             <div style="display:flex;gap:8px;align-items:center">
-              <input type="text" name="credential" id="credential" autocomplete="new-password"<?= in_array($cur_provider, ['henna', 'cloudmail'], true) ? '' : ' required' ?> placeholder="登录密码，或 16 位授权码 / 应用专用密码" style="flex:1" value="<?=e((string)($draft['cred'] ?? ''))?>">
+              <input type="text" name="credential" id="credential" autocomplete="new-password"<?= mc_api_is_api_kind($cur_provider) ? '' : ' required' ?> placeholder="登录密码，或 16 位授权码 / 应用专用密码" style="flex:1" value="<?=e((string)($draft['cred'] ?? ''))?>">
               <button type="button" class="btn ghost" id="credToggle" style="white-space:nowrap">🙈 隐藏</button>
             </div>
             <p class="muted">密码 / 授权码默认直接显示，方便核对；点“隐藏”就变成圆点。</p>
@@ -704,12 +697,12 @@ function render_add_form($draft, $edit_box, $edit_id, $return_tab = 'add', $bar 
               <?php if ($ms_ready_f): ?><a class="btn" href="oauth.php?step=ms_start">用微软账号登录添加</a>
               <?php else: ?><button type="button" class="btn" disabled style="opacity:.5;cursor:not-allowed">用微软账号登录添加</button> <span class="muted">先在设置里填 Client ID 和 Secret。</span><?php endif; ?>
             </div>
-            <div class="row" id="imapRow"<?= in_array($cur_provider, ['henna', 'cloudmail'], true) ? ' style="display:none"' : '' ?>>
+            <div class="row" id="imapRow"<?= mc_api_is_api_kind($cur_provider) ? ' style="display:none"' : '' ?>>
               <div><label>IMAP 服务器</label><input type="text" name="imap_host" id="imap_host" value="<?=e((string)($draft['ihost'] ?? ''))?>" placeholder="imap.qq.com"></div>
               <div><label>IMAP 端口</label><input type="text" name="imap_port" id="imap_port" value="<?=e((string)($draft['iport'] ?? '993'))?>"></div>
               <div><label>IMAP 加密</label><select name="imap_enc" id="imap_enc"><option value="ssl"<?= ($draft['ienc'] ?? 'ssl') === 'ssl' ? ' selected' : '' ?>>SSL</option><option value="tls"<?= ($draft['ienc'] ?? '') === 'tls' ? ' selected' : '' ?>>STARTTLS</option></select></div>
             </div>
-            <div class="row" id="smtpRow"<?= in_array($cur_provider, ['henna', 'cloudmail'], true) ? ' style="display:none"' : '' ?>>
+            <div class="row" id="smtpRow"<?= mc_api_is_api_kind($cur_provider) ? ' style="display:none"' : '' ?>>
               <div><label>SMTP 服务器</label><input type="text" name="smtp_host" id="smtp_host" value="<?=e((string)($draft['shost'] ?? ''))?>" placeholder="smtp.qq.com"></div>
               <div><label>SMTP 端口</label><input type="text" name="smtp_port" id="smtp_port" value="<?=e((string)($draft['sport'] ?? '587'))?>"></div>
               <div><label>SMTP 加密</label><select name="smtp_enc" id="smtp_enc"><option value="tls"<?= ($draft['senc'] ?? 'tls') === 'tls' ? ' selected' : '' ?>>STARTTLS</option><option value="ssl"<?= ($draft['senc'] ?? '') === 'ssl' ? ' selected' : '' ?>>SSL</option></select></div>
@@ -752,40 +745,40 @@ function render_add_form($draft, $edit_box, $edit_id, $return_tab = 'add', $bar 
           document.getElementById('smtp_enc').value=p[5];
         }
         var providerSel = document.getElementById('provider'), outlookNote = document.getElementById('outlookNote');
+        var API_KINDS = <?=json_encode(array_keys(mc_api_adapters()))?>; // 域名邮箱的 kind 列表，来自注册表
         // 每个分组的服务器取自这个分组里已有的邮箱；分组栏和厂商栏双向同步
         var GROUP_SERVERS = <?=json_encode($form_group_servers, JSON_UNESCAPED_UNICODE | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)?>;
         var groupSel = document.getElementById('groupSel'), groupNew = document.getElementById('groupNew');
         providerSel.addEventListener('change', function(){
           var v = this.value;
           outlookNote.style.display = (v === 'outlook') ? 'block' : 'none';
-          // Henna / Cloud Mail 不用 IMAP / SMTP：显示对应的蓝框，藏起下面两排服务器
-          var isApi = (v === 'henna' || v === 'cloudmail');
-          var hf = document.getElementById('hennaFields'), cf = document.getElementById('cloudmailFields'), ir = document.getElementById('imapRow'), sr = document.getElementById('smtpRow');
-          if (hf) hf.style.display = (v === 'henna') ? 'block' : 'none';
-          if (cf) cf.style.display = (v === 'cloudmail') ? 'block' : 'none';
+          // 域名邮箱不用 IMAP / SMTP：显示对应的蓝框，藏起下面两排服务器
+          var isApi = (API_KINDS.indexOf(v) >= 0);
+          var ir = document.getElementById('imapRow'), sr = document.getElementById('smtpRow');
+          API_KINDS.forEach(function(k){
+            var box = document.getElementById('apiFields_' + k);
+            if (box) box.style.display = (v === k) ? 'block' : 'none';
+            ['panel_url_', 'panel_login_', 'panel_password_'].forEach(function(p){
+              var el = document.getElementById(p + k);
+              if (el) el.disabled = (v !== k);
+            });
+          });
           if (ir) ir.style.display = isApi ? 'none' : '';
           if (sr) sr.style.display = isApi ? 'none' : '';
-          // Henna / Cloud Mail 时密码填在蓝框里：藏起登录方式和共用的密码框，必填也跟着换过去
-          var mr = document.getElementById('methodRow'), cr = document.getElementById('credRow'), hp = document.getElementById('henna_password'), cd = document.getElementById('credential');
+          // 域名邮箱时密码填在蓝框里：藏起登录方式和共用的密码框，必填也跟着换过去
+          var mr = document.getElementById('methodRow'), cr = document.getElementById('credRow'), cd = document.getElementById('credential');
           if (mr) mr.style.display = isApi ? 'none' : '';
           if (cr) cr.style.display = isApi ? 'none' : '';
           if (cd) cd.required = !isApi;
-          if (hp) hp.required = (v === 'henna');
-          var hl2 = document.getElementById('henna_login');
-          if (hl2) hl2.required = (v === 'henna');
-          var cp = document.getElementById('cloudmail_password'), cl2 = document.getElementById('cloudmail_login');
-          if (cp) cp.required = (v === 'cloudmail');
-          if (cl2) cl2.required = (v === 'cloudmail');
-          if (v === 'henna') {
-            // 刚切到 Henna：账号栏空着就拿邮箱地址自动填上
-            var em2 = document.getElementById('email');
-            if (hl2 && hl2.value === '' && em2 && em2.value !== '') hl2.value = em2.value;
-            return;
-          }
-          if (v === 'cloudmail') {
-            // 刚切到 Cloud Mail：账号栏空着就拿邮箱地址自动填上
-            var em3 = document.getElementById('email');
-            if (cl2 && cl2.value === '' && em3 && em3.value !== '') cl2.value = em3.value;
+          API_KINDS.forEach(function(k){
+            var lp = document.getElementById('panel_login_' + k), pp = document.getElementById('panel_password_' + k);
+            if (lp) lp.required = (v === k);
+            if (pp) pp.required = (v === k);
+          });
+          if (isApi) {
+            // 刚切到域名邮箱：账号栏空着就拿邮箱地址自动填上
+            var em2 = document.getElementById('email'), lg = document.getElementById('panel_login_' + v);
+            if (lg && lg.value === '' && em2 && em2.value !== '') lg.value = em2.value;
             return;
           }
           if (v === 'custom' || v === 'auto') return; // 自定义自己填；自动识别等填邮箱地址时再填
@@ -799,42 +792,31 @@ function render_add_form($draft, $edit_box, $edit_id, $return_tab = 'add', $bar 
           var p = P[DOMAIN_OF_PROVIDER[v]]; if (p) fillServers(p);
         });
         document.getElementById('email').addEventListener('change', function(){
-          if (providerSel.value === 'henna' || providerSel.value === 'cloudmail') return; // Henna / Cloud Mail 不用服务器
+          if (API_KINDS.indexOf(providerSel.value) >= 0) return; // 域名邮箱不用服务器
           var d = (this.value.split('@')[1]||'').toLowerCase().trim();
           var p = P[d]; if(!p) return;
           fillServers(p);
           var pv = PROVIDER_OF_DOMAIN[d]; if (pv) { providerSel.value = pv; outlookNote.style.display = (pv === 'outlook') ? 'block' : 'none'; }
         });
-        // Henna 登录账号默认跟邮箱地址走，手动改过就不再自动跟
-        var hennaLogin = document.getElementById('henna_login'), hennaLoginTouched = false;
-        if (hennaLogin) {
-          hennaLogin.addEventListener('input', function(){ hennaLoginTouched = true; });
+        // 域名邮箱登录账号默认跟邮箱地址走，手动改过就不再自动跟
+        API_KINDS.forEach(function(k){
+          var apiLogin = document.getElementById('panel_login_' + k), touched = false;
+          if (!apiLogin) return;
+          apiLogin.addEventListener('input', function(){ touched = true; });
           var emailEl = document.getElementById('email');
           if (emailEl) {
             emailEl.addEventListener('input', function(){
-              if (!hennaLoginTouched && providerSel.value === 'henna') hennaLogin.value = this.value;
+              if (!touched && providerSel.value === k) apiLogin.value = this.value;
             });
-            if (hennaLogin.value === '' && emailEl.value !== '') hennaLogin.value = emailEl.value;
+            if (apiLogin.value === '' && emailEl.value !== '') apiLogin.value = emailEl.value;
           }
-        }
-        // Cloud Mail 登录账号默认跟邮箱地址走，手动改过就不再自动跟
-        var cloudmailLogin = document.getElementById('cloudmail_login'), cloudmailLoginTouched = false;
-        if (cloudmailLogin) {
-          cloudmailLogin.addEventListener('input', function(){ cloudmailLoginTouched = true; });
-          var emailEl2 = document.getElementById('email');
-          if (emailEl2) {
-            emailEl2.addEventListener('input', function(){
-              if (!cloudmailLoginTouched && providerSel.value === 'cloudmail') cloudmailLogin.value = this.value;
-            });
-            if (cloudmailLogin.value === '' && emailEl2.value !== '') cloudmailLogin.value = emailEl2.value;
-          }
-        }
+        });
         // 选分组就自动填服务器，同时厂商栏同步改成这个分组
         groupSel.addEventListener('change', function(){
           var v = this.value;
           groupNew.style.display = (v === '__new__') ? '' : 'none';
           if (v === '__new__') { groupNew.focus(); return; }
-          if (providerSel.value === 'henna' || providerSel.value === 'cloudmail') return; // Henna / Cloud Mail 不用服务器，厂商栏不动
+          if (API_KINDS.indexOf(providerSel.value) >= 0) return; // 域名邮箱不用服务器，厂商栏不动
           var p = GROUP_SERVERS[v];
           if (p) { fillServers(p); providerSel.value = 'group:' + v; }
           else { providerSel.value = 'auto'; }
@@ -967,60 +949,55 @@ if (logged_in() && $action !== '' && check_csrf()) {
         $shost = trim((string)($_POST['smtp_host'] ?? ''));
         $sport = (int)($_POST['smtp_port'] ?? 587);
         $senc = in_array(($_POST['smtp_enc'] ?? 'tls'), ['ssl', 'tls'], true) ? (string)$_POST['smtp_enc'] : 'tls';
-        // Henna 字段：面板地址、面板登录邮箱；kind 由厂商栏决定
-        $kind = (($_POST['provider'] ?? '') === 'henna') ? 'henna' : ((($_POST['provider'] ?? '') === 'cloudmail') ? 'cloudmail' : 'imap');
-        $henna_panel = trim((string)($_POST['henna_panel'] ?? ''));
-        if ($henna_panel === '') $henna_panel = HENNA_DEFAULT_PANEL;
-        $henna_login = trim((string)($_POST['henna_login'] ?? ''));
-        $henna_password = (string)($_POST['henna_password'] ?? '');
-        // Henna 的密码填在蓝框里；没填就用上面共用的密码框（兼容旧版表单）
-        if ($kind === 'henna' && $henna_password !== '') $cred = $henna_password;
-        // Cloud Mail 字段：面板地址、面板登录邮箱；kind 由厂商栏决定
-        $cloudmail_panel = trim((string)($_POST['cloudmail_panel'] ?? ''));
-        if ($cloudmail_panel === '') $cloudmail_panel = CLOUDMAIL_DEFAULT_PANEL;
-        $cloudmail_login = trim((string)($_POST['cloudmail_login'] ?? ''));
-        $cloudmail_password = (string)($_POST['cloudmail_password'] ?? '');
-        // Cloud Mail 的密码填在蓝框里；没填就用上面共用的密码框（兼容旧版表单）
-        if ($kind === 'cloudmail' && $cloudmail_password !== '') $cred = $cloudmail_password;
+        // 域名邮箱字段：面板地址、面板登录账号；kind 由厂商栏决定（在注册表里的就是域名邮箱）
+        $kind = mc_api_is_api_kind((string)($_POST['provider'] ?? '')) ? (string)$_POST['provider'] : 'imap';
+        $panel_url = trim((string)($_POST['panel_url'] ?? ''));
+        if ($panel_url === '') $panel_url = trim((string)($_POST[$kind . '_panel'] ?? '')); // 兼容旧版表单
+        $panel_login = trim((string)($_POST['panel_login'] ?? ''));
+        if ($panel_login === '') $panel_login = trim((string)($_POST[$kind . '_login'] ?? ''));
+        $panel_password = trim((string)($_POST['panel_password'] ?? ''));
+        if ($panel_password === '') $panel_password = trim((string)($_POST[$kind . '_password'] ?? ''));
+        // 域名邮箱的密码填在蓝框里；没填就用上面共用的密码框（兼容旧版表单）
+        if (mc_api_is_api_kind($kind) && $panel_password !== '') $cred = $panel_password;
+        // 旧字段名也留一份，方便回滚到 v4.29 前的版本直接读
+        $henna_panel = $kind === 'henna' ? $panel_url : trim((string)($_POST['henna_panel'] ?? ''));
+        $henna_login = $kind === 'henna' ? $panel_login : trim((string)($_POST['henna_login'] ?? ''));
+        $henna_password = $kind === 'henna' ? $panel_password : trim((string)($_POST['henna_password'] ?? ''));
+        $cloudmail_panel = $kind === 'cloudmail' ? $panel_url : trim((string)($_POST['cloudmail_panel'] ?? ''));
+        $cloudmail_login = $kind === 'cloudmail' ? $panel_login : trim((string)($_POST['cloudmail_login'] ?? ''));
+        $cloudmail_password = $kind === 'cloudmail' ? $panel_password : trim((string)($_POST['cloudmail_password'] ?? ''));
         if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
             flash('邮箱地址格式不对，请填完整地址，如 xxx@qq.com。', 'err');
-            $_SESSION['add_draft'] = compact('email', 'dname', 'group', 'method', 'cred', 'ihost', 'iport', 'ienc', 'shost', 'sport', 'senc', 'kind', 'henna_panel', 'henna_login', 'henna_password', 'cloudmail_panel', 'cloudmail_login', 'cloudmail_password');
+            $_SESSION['add_draft'] = compact('email', 'dname', 'group', 'method', 'cred', 'ihost', 'iport', 'ienc', 'shost', 'sport', 'senc', 'kind', 'panel_url', 'panel_login', 'panel_password', 'henna_panel', 'henna_login', 'henna_password', 'cloudmail_panel', 'cloudmail_login', 'cloudmail_password');
             $_SESSION['add_draft']['edit_id'] = $edit_id;
         } elseif ($cred === '') {
-            flash($kind === 'henna' ? 'Henna 登录密码没填。' : ($kind === 'cloudmail' ? 'Cloud Mail 登录密码没填。' : '密码 / 授权码没填。'), 'err');
-            $_SESSION['add_draft'] = compact('email', 'dname', 'group', 'method', 'cred', 'ihost', 'iport', 'ienc', 'shost', 'sport', 'senc', 'kind', 'henna_panel', 'henna_login', 'henna_password', 'cloudmail_panel', 'cloudmail_login', 'cloudmail_password');
+            flash(mc_api_is_api_kind($kind) ? mc_api_label($kind) . ' 登录密码没填。' : '密码 / 授权码没填。', 'err');
+            $_SESSION['add_draft'] = compact('email', 'dname', 'group', 'method', 'cred', 'ihost', 'iport', 'ienc', 'shost', 'sport', 'senc', 'kind', 'panel_url', 'panel_login', 'panel_password', 'henna_panel', 'henna_login', 'henna_password', 'cloudmail_panel', 'cloudmail_login', 'cloudmail_password');
             $_SESSION['add_draft']['edit_id'] = $edit_id;
-        } elseif ($kind === 'henna' && $henna_login === '') {
-            flash('Henna 登录账号没填。', 'err');
-            $_SESSION['add_draft'] = compact('email', 'dname', 'group', 'method', 'cred', 'ihost', 'iport', 'ienc', 'shost', 'sport', 'senc', 'kind', 'henna_panel', 'henna_login', 'henna_password', 'cloudmail_panel', 'cloudmail_login', 'cloudmail_password');
-            $_SESSION['add_draft']['edit_id'] = $edit_id;
-        } elseif ($kind === 'cloudmail' && $cloudmail_login === '') {
-            flash('Cloud Mail 登录账号没填。', 'err');
-            $_SESSION['add_draft'] = compact('email', 'dname', 'group', 'method', 'cred', 'ihost', 'iport', 'ienc', 'shost', 'sport', 'senc', 'kind', 'henna_panel', 'henna_login', 'henna_password', 'cloudmail_panel', 'cloudmail_login', 'cloudmail_password');
+        } elseif (mc_api_is_api_kind($kind) && $panel_login === '') {
+            flash(mc_api_label($kind) . ' 登录账号没填。', 'err');
+            $_SESSION['add_draft'] = compact('email', 'dname', 'group', 'method', 'cred', 'ihost', 'iport', 'ienc', 'shost', 'sport', 'senc', 'kind', 'panel_url', 'panel_login', 'panel_password', 'henna_panel', 'henna_login', 'henna_password', 'cloudmail_panel', 'cloudmail_login', 'cloudmail_password');
             $_SESSION['add_draft']['edit_id'] = $edit_id;
         } else {
             $prov = provider_for($email);
-            // Henna 邮箱不测 IMAP，走 Henna API 测登录
-            if ($kind === 'henna') {
-                [$ok, $msg] = henna_test($henna_panel, $henna_login, $cred, $email);
-            } elseif ($kind === 'cloudmail') {
-                // Cloud Mail 邮箱不测 IMAP，走 Cloud Mail API 测登录
-                [$ok, $msg] = cloudmail_test($cloudmail_panel, $cloudmail_login, $cred, $email);
+            // 域名邮箱不测 IMAP，走适配器 API 测登录
+            if (mc_api_is_api_kind($kind)) {
+                [$ok, $msg] = mc_api_test($kind, $panel_url, $panel_login, $cred, $email);
             } else {
                 [$ok, $msg] = test_imap($ihost, $iport, $email, $cred);
             }
             if ($action === 'test_add') {
                 flash(($ok ? '测试成功：' : '测试失败：') . $msg, $ok ? 'ok' : 'err');
                 // 测试不保存，把填过的值带回表单（密码 / 授权码也带回，点了测试不用重新填）
-                $_SESSION['add_draft'] = compact('email', 'dname', 'group', 'method', 'cred', 'ihost', 'iport', 'ienc', 'shost', 'sport', 'senc', 'kind', 'henna_panel', 'henna_login', 'henna_password', 'cloudmail_panel', 'cloudmail_login', 'cloudmail_password');
+                $_SESSION['add_draft'] = compact('email', 'dname', 'group', 'method', 'cred', 'ihost', 'iport', 'ienc', 'shost', 'sport', 'senc', 'kind', 'panel_url', 'panel_login', 'panel_password', 'henna_panel', 'henna_login', 'henna_password', 'cloudmail_panel', 'cloudmail_login', 'cloudmail_password');
                 $_SESSION['add_draft']['edit_id'] = $edit_id;
             } else {
                 $found = false;
                 if ($edit_id !== '') {
                     foreach ($list as &$m) {
                         if ($m['id'] === $edit_id) {
-                            $m['display_name'] = $dname; $m['group'] = $group; $m['provider'] = $kind === 'henna' ? 'Henna' : ($kind === 'cloudmail' ? 'Cloud Mail' : $prov[0]); $m['method'] = $method;
-                            $m['kind'] = $kind; $m['henna_panel'] = $henna_panel; $m['henna_login'] = $henna_login; $m['cloudmail_panel'] = $cloudmail_panel; $m['cloudmail_login'] = $cloudmail_login;
+                            $m['display_name'] = $dname; $m['group'] = $group; $m['provider'] = (mc_api_is_api_kind($kind) ? mc_api_label($kind) : $prov[0]); $m['method'] = $method;
+                            $m['kind'] = $kind; $m['panel_url'] = $panel_url; $m['panel_login'] = $panel_login; $m['henna_panel'] = $henna_panel; $m['henna_login'] = $henna_login; $m['cloudmail_panel'] = $cloudmail_panel; $m['cloudmail_login'] = $cloudmail_login;
                             $m['imap_host'] = $ihost; $m['imap_port'] = $iport; $m['imap_enc'] = $ienc;
                             $m['smtp_host'] = $shost; $m['smtp_port'] = $sport; $m['smtp_enc'] = $senc;
                             $m['credential'] = encrypt_cred($cred, $key);
@@ -1037,8 +1014,8 @@ if (logged_in() && $action !== '' && check_csrf()) {
                     $list[] = [
                         'id' => bin2hex(random_bytes(8)),
                         'email' => $email, 'display_name' => $dname, 'group' => $group,
-                        'provider' => $kind === 'henna' ? 'Henna' : ($kind === 'cloudmail' ? 'Cloud Mail' : $prov[0]), 'method' => $method, 'auth' => '',
-                        'kind' => $kind, 'henna_panel' => $henna_panel, 'henna_login' => $henna_login, 'cloudmail_panel' => $cloudmail_panel, 'cloudmail_login' => $cloudmail_login,
+                        'provider' => (mc_api_is_api_kind($kind) ? mc_api_label($kind) : $prov[0]), 'method' => $method, 'auth' => '',
+                        'kind' => $kind, 'panel_url' => $panel_url, 'panel_login' => $panel_login, 'henna_panel' => $henna_panel, 'henna_login' => $henna_login, 'cloudmail_panel' => $cloudmail_panel, 'cloudmail_login' => $cloudmail_login,
                         'imap_host' => $ihost, 'imap_port' => $iport, 'imap_enc' => $ienc,
                         'smtp_host' => $shost, 'smtp_port' => $sport, 'smtp_enc' => $senc,
                         'credential' => encrypt_cred($cred, $key),
@@ -1076,29 +1053,14 @@ if (logged_in() && $action !== '' && check_csrf()) {
                     }
                     break;
                 }
-                // Henna 邮箱：不测 IMAP，走 Henna API 测登录
-                if ((string)($m['kind'] ?? 'imap') === 'henna') {
+                // 域名邮箱：不测 IMAP，走适配器 API 测登录
+                if (mc_api_is_api_kind((string)($m['kind'] ?? 'imap'))) {
                     $cred = decrypt_cred((string)$m['credential'], $key);
                     if ($cred === null) {
                         $m['status'] = 'fail'; $m['last_error'] = '凭据解不开了：站点密码改过或重置过，请删除这个邮箱后重新添加。';
                         flash('凭据解不开了，请删除后重新添加这个邮箱。', 'err');
                     } else {
-                        [$ok, $msg] = henna_test((string)($m['henna_panel'] ?? ''), (string)($m['henna_login'] ?? ''), $cred, (string)$m['email']);
-                        $m['status'] = $ok ? 'ok' : 'fail';
-                        $m['last_test'] = date('Y-m-d H:i');
-                        $m['last_error'] = $ok ? '' : $msg;
-                        flash(($ok ? '测试成功：' : '测试失败：') . $msg, $ok ? 'ok' : 'err');
-                    }
-                    break;
-                }
-                // Cloud Mail 邮箱：不测 IMAP，走 Cloud Mail API 测登录
-                if ((string)($m['kind'] ?? 'imap') === 'cloudmail') {
-                    $cred = decrypt_cred((string)$m['credential'], $key);
-                    if ($cred === null) {
-                        $m['status'] = 'fail'; $m['last_error'] = '凭据解不开了：站点密码改过或重置过，请删除这个邮箱后重新添加。';
-                        flash('凭据解不开了，请删除后重新添加这个邮箱。', 'err');
-                    } else {
-                        [$ok, $msg] = cloudmail_test((string)($m['cloudmail_panel'] ?? ''), (string)($m['cloudmail_login'] ?? ''), $cred, (string)$m['email']);
+                        [$ok, $msg] = mc_api_test((string)($m['kind'] ?? 'imap'), mc_api_panel_of($m), mc_api_login_of($m), $cred, (string)$m['email']);
                         $m['status'] = $ok ? 'ok' : 'fail';
                         $m['last_test'] = date('Y-m-d H:i');
                         $m['last_error'] = $ok ? '' : $msg;
@@ -1209,29 +1171,10 @@ if (logged_in() && $action !== '' && check_csrf()) {
                 }
                 $xoauth = ms_token_blob((string)$mbx['email'], $token);
             }
-            // Henna 邮箱：不走 SMTP，走 Henna API 发（纯文本；抄送并进收件人）
-            if ((string)($mbx['kind'] ?? 'imap') === 'henna') {
-                $htok = henna_token_for((string)($mbx['henna_panel'] ?? ''), (string)($mbx['henna_login'] ?? ''), (string)$cred, (string)$mbx['id']);
-                if ($htok === '') {
-                    $r = ['ok' => false, 'err' => 'Henna 登录失败，请检查面板登录邮箱和密码。'];
-                } else {
-                    [$hs_ok, $hs_msg] = henna_send((string)($mbx['henna_panel'] ?? ''), $htok, (string)$mbx['email'], array_merge($to, $cc), $subject, $body);
-                    $r = ['ok' => $hs_ok, 'err' => $hs_msg];
-                }
-            } elseif ((string)($mbx['kind'] ?? 'imap') === 'cloudmail') {
-                // Cloud Mail 邮箱：不走 SMTP，走 Cloud Mail API 发（纯文本；抄送并进收件人）
-                $ctok = cloudmail_token_for((string)($mbx['cloudmail_panel'] ?? ''), (string)($mbx['cloudmail_login'] ?? ''), (string)$cred, (string)$mbx['id']);
-                if ($ctok === '') {
-                    $r = ['ok' => false, 'err' => 'Cloud Mail 登录失败，请检查面板登录邮箱和密码。'];
-                } else {
-                    [$caid, $cerr] = cloudmail_account_id_for((string)($mbx['cloudmail_panel'] ?? ''), $ctok, (string)$mbx['email']);
-                    if ($caid <= 0) {
-                        $r = ['ok' => false, 'err' => $cerr];
-                    } else {
-                        [$cs_ok, $cs_msg] = cloudmail_send((string)($mbx['cloudmail_panel'] ?? ''), $ctok, $caid, (string)$mbx['email'], array_merge($to, $cc), $subject, $body);
-                        $r = ['ok' => $cs_ok, 'err' => $cs_msg];
-                    }
-                }
+            // 域名邮箱：不走 SMTP，走适配器 API 发（纯文本；抄送并进收件人）
+            if (mc_api_is_api_kind((string)($mbx['kind'] ?? 'imap'))) {
+                [$s_ok, $s_msg] = mc_api_send((string)($mbx['kind'] ?? 'imap'), $mbx, (string)$cred, array_merge($to, $cc), $subject, $body);
+                $r = ['ok' => $s_ok, 'err' => $s_msg];
             } else {
                 $r = mail_smtp_send($mbx, (string)$cred, (string)$mbx['email'], $from_name, $to, $cc, $subject, $body, $xoauth);
             }
@@ -1239,8 +1182,8 @@ if (logged_in() && $action !== '' && check_csrf()) {
                 flash('发送失败：' . $r['err'], 'err');
                 $_SESSION['compose_draft'] = ['mb' => $mbx['id'], 'to' => (string)($_POST['to'] ?? ''), 'cc' => (string)($_POST['cc'] ?? ''), 'subject' => $subject, 'body' => $body];
             } else {
-                // Henna / Cloud Mail：已发送在各自面板里就有，不用再往 IMAP 已发送里追加一份
-                if (!in_array((string)($mbx['kind'] ?? 'imap'), ['henna', 'cloudmail'], true)) {
+                // 域名邮箱：已发送在各自面板里就有，不用再往 IMAP 已发送里追加一份
+                if (!mc_api_is_api_kind((string)($mbx['kind'] ?? 'imap'))) {
                     [$fp, $map, $merr] = mail_connect_current($mbx, (string)$cred);
                     if ($fp) {
                         // 已发送按常用名一个一个试，找到就把副本存进去；找不到就不存，不影响发信本身
@@ -1272,26 +1215,11 @@ if (logged_in() && $action !== '' && check_csrf()) {
             flash('这封邮件找不到了。', 'err');
         } else {
             $cred = decrypt_cred((string)$mbx['credential'], $key);
-            // Henna：没有已删除也没有垃圾箱，删除就是彻底删除
-            if ((string)($mbx['kind'] ?? 'imap') === 'henna') {
-                $htok = henna_token_for((string)($mbx['henna_panel'] ?? ''), (string)($mbx['henna_login'] ?? ''), (string)$cred, (string)$mbx['id']);
-                if ($htok === '') {
-                    flash('Henna 登录失败，请检查面板登录邮箱和密码。', 'err');
-                } else {
-                    [$hd_ok, $hd_msg] = henna_delete((string)($mbx['henna_panel'] ?? ''), $htok, $uid);
-                    flash($hd_ok ? '已彻底删除。' : $hd_msg, $hd_ok ? 'ok' : 'err');
-                    if ($hd_ok) mail_clear_cache((string)$mbx['id']);
-                }
-            } elseif ((string)($mbx['kind'] ?? 'imap') === 'cloudmail') {
-                // Cloud Mail：没有已删除也没有垃圾箱，删除就是从列表删掉（软删，找不回来）
-                $ctok = cloudmail_token_for((string)($mbx['cloudmail_panel'] ?? ''), (string)($mbx['cloudmail_login'] ?? ''), (string)$cred, (string)$mbx['id']);
-                if ($ctok === '') {
-                    flash('Cloud Mail 登录失败，请检查面板登录邮箱和密码。', 'err');
-                } else {
-                    [$cd_ok, $cd_msg] = cloudmail_delete((string)($mbx['cloudmail_panel'] ?? ''), $ctok, [$uid]);
-                    flash($cd_ok ? '已删除（Cloud Mail 没有已删除，删了就找不回来）。' : $cd_msg, $cd_ok ? 'ok' : 'err');
-                    if ($cd_ok) mail_clear_cache((string)$mbx['id']);
-                }
+            // 域名邮箱：没有已删除也没有垃圾箱，删除按适配器走（Henna 是彻底删除）
+            if (mc_api_is_api_kind((string)($mbx['kind'] ?? 'imap'))) {
+                [$d_ok, $d_msg] = mc_api_delete((string)($mbx['kind'] ?? 'imap'), $mbx, (string)$cred, $uid);
+                flash($d_msg, $d_ok ? 'ok' : 'err');
+                if ($d_ok) mail_clear_cache((string)$mbx['id']);
             } else {
             [$fp, $map, $merr] = mail_connect_current($mbx, (string)$cred);
             if (!$fp) {
@@ -1307,7 +1235,7 @@ if (logged_in() && $action !== '' && check_csrf()) {
                 }
                 mail_close($fp);
             }
-            } // Henna 删除不走上面这段 IMAP
+            } // 域名邮箱删除不走上面这段 IMAP
         }
         // 从全部收件箱里删的，删完回全部收件箱，不回单个邮箱
         $back_all = (($_POST['all'] ?? '') === '1');
@@ -1483,7 +1411,7 @@ $edit_box = null;
 if ($edit_id !== '') {
     foreach ($mailboxes as $mb) { if ($mb['id'] === $edit_id) { $edit_box = $mb; break; } }
     if ($edit_box) {
-        $draft = array_merge(['email' => $edit_box['email'], 'dname' => $edit_box['display_name'] ?? '', 'group' => $edit_box['group'] ?? '未分组', 'method' => $edit_box['method'] ?? 'authcode', 'cred' => decrypt_cred((string)($edit_box['credential'] ?? ''), $key) ?? '', 'ihost' => $edit_box['imap_host'] ?? '', 'iport' => $edit_box['imap_port'] ?? 993, 'ienc' => $edit_box['imap_enc'] ?? 'ssl', 'shost' => $edit_box['smtp_host'] ?? '', 'sport' => $edit_box['smtp_port'] ?? 587, 'senc' => $edit_box['smtp_enc'] ?? 'tls', 'kind' => $edit_box['kind'] ?? 'imap', 'henna_panel' => $edit_box['henna_panel'] ?? '', 'henna_login' => $edit_box['henna_login'] ?? '', 'cloudmail_panel' => $edit_box['cloudmail_panel'] ?? '', 'cloudmail_login' => $edit_box['cloudmail_login'] ?? '', 'edit_id' => $edit_id], $draft);
+        $draft = array_merge(['email' => $edit_box['email'], 'dname' => $edit_box['display_name'] ?? '', 'group' => $edit_box['group'] ?? '未分组', 'method' => $edit_box['method'] ?? 'authcode', 'cred' => decrypt_cred((string)($edit_box['credential'] ?? ''), $key) ?? '', 'ihost' => $edit_box['imap_host'] ?? '', 'iport' => $edit_box['imap_port'] ?? 993, 'ienc' => $edit_box['imap_enc'] ?? 'ssl', 'shost' => $edit_box['smtp_host'] ?? '', 'sport' => $edit_box['smtp_port'] ?? 587, 'senc' => $edit_box['smtp_enc'] ?? 'tls', 'kind' => $edit_box['kind'] ?? 'imap', 'panel_url' => mc_api_panel_of($edit_box), 'panel_login' => mc_api_login_of($edit_box), 'panel_password' => decrypt_cred((string)($edit_box['credential'] ?? ''), $key) ?? '', 'henna_panel' => $edit_box['henna_panel'] ?? '', 'henna_login' => $edit_box['henna_login'] ?? '', 'cloudmail_panel' => $edit_box['cloudmail_panel'] ?? '', 'cloudmail_login' => $edit_box['cloudmail_login'] ?? '', 'edit_id' => $edit_id], $draft);
     }
 }
 
@@ -1512,7 +1440,7 @@ $mail_folder_names = ['inbox' => '收件箱', 'spam' => '垃圾箱', 'sent' => '
 $mail_page = max(1, (int)($_GET['page'] ?? 1));
 $mail_uid = (int)($_GET['uid'] ?? 0);
 $mail_err = '';
-$mail_note = ''; // Henna 这类没有已删除的邮箱，在这里放一句提示（不是报错）
+$mail_note = ''; // 域名邮箱这类没有已删除的邮箱，在这里放一句提示（不是报错）
 $mail_folders = [];
 $mail_list = [];
 $mail_total = 0;
@@ -1525,54 +1453,23 @@ if (logged_in() && $cur_mb && in_array($tab, ['inbox', 'read', 'compose', 'attac
     // 附件下载：先取原邮件、再按序号找附件，找到就直接输出文件并结束
     if ($tab === 'attach') {
         $att_idx = (int)($_GET['att'] ?? -1);
-        // Henna 附件：按链接里的 mb 找邮箱，走 Henna API 取流回传
-        $att_mb = $cur_mb;
-        $att_cred = $cur_cred;
-        $want_att_mb = (string)($_GET['mb'] ?? '');
-        foreach ($mailboxes as $mb) { if ($mb['id'] === $want_att_mb) { $att_mb = $mb; $att_cred = decrypt_cred((string)$mb['credential'], $key); break; } }
-        if ((string)($att_mb['kind'] ?? 'imap') === 'henna') {
-            $htok = henna_token_for((string)($att_mb['henna_panel'] ?? ''), (string)($att_mb['henna_login'] ?? ''), (string)$att_cred, (string)$att_mb['id']);
-            if ($htok !== '' && $mail_uid > 0 && $att_idx >= 0) {
-                // 链接里的 att 是附件序号，先取全文拿到附件 id，再下附件
-                $hmsg = henna_fetch_message((string)($att_mb['henna_panel'] ?? ''), $htok, $mail_uid);
-                $hatts = (array)($hmsg['attachments'] ?? []);
-                if (!isset($hmsg['error']) && isset($hatts[$att_idx])) {
-                    $hatt = $hatts[$att_idx];
-                    $dl = henna_download((string)($att_mb['henna_panel'] ?? ''), $htok, (int)($hatt['id'] ?? 0));
+        // 域名邮箱附件：按链接里的 mb 找邮箱，走适配器 API 取流回传
+        if (mc_api_is_api_kind((string)($att_mb['kind'] ?? 'imap'))) {
+            $att_kind = (string)($att_mb['kind'] ?? 'imap');
+            if ($mail_uid > 0 && $att_idx >= 0) {
+                $amsg = mc_api_fetch_message($att_kind, $att_mb, (string)$att_cred, $mail_folder, $mail_uid);
+                $aatts = (array)($amsg['attachments'] ?? []);
+                if (!isset($amsg['error']) && isset($aatts[$att_idx])) {
+                    $aatt = $aatts[$att_idx];
+                    $dl = mc_api_download($att_kind, $att_mb, (string)$att_cred, $aatt);
                     if (!isset($dl['error'])) {
-                        $fname = trim((string)($hatt['filename'] ?? '')) !== '' ? (string)$hatt['filename'] : 'attachment';
+                        $fname = trim((string)($aatt['filename'] ?? '')) !== '' ? (string)$aatt['filename'] : 'attachment';
                         $fname = str_replace(['"', "\r", "\n"], '', $fname);
-                        header('Content-Type: ' . ((string)($hatt['ctype'] ?? $dl['ctype'])));
+                        header('Content-Type: ' . ((string)($aatt['ctype'] ?? $dl['ctype'])));
                         header('Content-Disposition: attachment; filename="' . $fname . '"');
                         header('Content-Length: ' . (string)strlen((string)$dl['body']));
                         echo (string)$dl['body'];
                         exit;
-                    }
-                }
-            }
-            flash('附件找不到了，可能是这封邮件没有这个附件。', 'err');
-            header('Location: index.php?tab=inbox&folder=' . urlencode($mail_folder) . '&mb=' . urlencode($att_mb['id'])); exit;
-        }
-        // Cloud Mail 附件：按链接里的 mb 找邮箱，走 Cloud Mail API 取流回传
-        if ((string)($att_mb['kind'] ?? 'imap') === 'cloudmail') {
-            $ctok = cloudmail_token_for((string)($att_mb['cloudmail_panel'] ?? ''), (string)($att_mb['cloudmail_login'] ?? ''), (string)$att_cred, (string)$att_mb['id']);
-            if ($ctok !== '' && $mail_uid > 0 && $att_idx >= 0) {
-                [$caid, $cerr] = cloudmail_account_id_for((string)($att_mb['cloudmail_panel'] ?? ''), $ctok, (string)$att_mb['email']);
-                if ($caid > 0) {
-                    $cmsg = cloudmail_fetch_message((string)($att_mb['cloudmail_panel'] ?? ''), $ctok, $caid, $mail_folder, $mail_uid);
-                    $catts = (array)($cmsg['attachments'] ?? []);
-                    if (!isset($cmsg['error']) && isset($catts[$att_idx]) && trim((string)($catts[$att_idx]['key'] ?? '')) !== '') {
-                        $catt = $catts[$att_idx];
-                        $dl = cloudmail_download((string)($att_mb['cloudmail_panel'] ?? ''), $ctok, (string)$catt['key']);
-                        if (!isset($dl['error'])) {
-                            $fname = trim((string)($catt['filename'] ?? '')) !== '' ? (string)$catt['filename'] : 'attachment';
-                            $fname = str_replace(['"', "\r", "\n"], '', $fname);
-                            header('Content-Type: ' . ((string)($catt['ctype'] ?? $dl['ctype'])));
-                            header('Content-Disposition: attachment; filename="' . $fname . '"');
-                            header('Content-Length: ' . (string)strlen((string)$dl['body']));
-                            echo (string)$dl['body'];
-                            exit;
-                        }
                     }
                 }
             }
@@ -1636,49 +1533,25 @@ if (logged_in() && $cur_mb && in_array($tab, ['inbox', 'read', 'compose', 'attac
                     }
                     continue;
                 }
-                // Henna 邮箱：不走 IMAP，走 Henna API（列表缓存、合并、分页都和上面一样）
-                if ((string)($mbx['kind'] ?? 'imap') === 'henna') {
-                    $henna_map = ['inbox' => 'in', 'sent' => 'out', 'drafts' => 'draft', 'spam' => 'spam', 'trash' => 'trash'];
-                    $all_folders = array_merge($all_folders, $henna_map);
-                    if ($mail_folder === 'trash') { $mail_note = 'Henna 没有已删除：删了就是彻底删除，找不回来。'; continue; }
+                // 域名邮箱：不走 IMAP，走适配器 API（列表缓存、合并、分页都和上面一样）
+                if (mc_api_is_api_kind((string)($mbx['kind'] ?? 'imap'))) {
+                    $api_kind = (string)($mbx['kind'] ?? 'imap');
+                    $api_map = mc_api_folder_map($api_kind);
+                    $all_folders = array_merge($all_folders, $api_map);
+                    if (!isset($api_map[$mail_folder])) { $mail_note = mc_api_no_folder_msg($api_kind, $mail_folder); continue; }
                     $credx = decrypt_cred((string)$mbx['credential'], $key);
-                    $htok = henna_token_for((string)($mbx['henna_panel'] ?? ''), (string)($mbx['henna_login'] ?? ''), (string)$credx, (string)$mbx['id']);
-                    if ($htok === '') { $unified_errors[] = (string)$mbx['email'] . '：Henna 登录失败，请检查面板登录邮箱和密码。'; continue; }
-                    $hres = henna_fetch_list((string)($mbx['henna_panel'] ?? ''), $htok, (string)$mbx['email'], $mail_folder, 1, 30);
-                    if (isset($hres['error'])) { $unified_errors[] = (string)$mbx['email'] . '：' . (string)$hres['error']; continue; }
+                    $ares = mc_api_fetch_list($api_kind, $mbx, (string)$credx, $mail_folder, 1, 30);
+                    if (isset($ares['error'])) { $unified_errors[] = (string)$mbx['email'] . '：' . (string)$ares['error']; continue; }
                     $live_fetches++;
-                    $rowsx = (array)($hres['rows'] ?? []);
+                    $rowsx = (array)($ares['rows'] ?? []);
                     foreach ($rowsx as $rx) {
                         $rx['mb_id'] = $mbx['id'];
                         $rx['mb_email'] = $mbx['email'];
                         $merged[] = $rx;
                     }
-                    mail_cache_write((string)$mbx['id'], $mail_folder, $rowsx, (int)($hres['total'] ?? count($rowsx)), $henna_map);
+                    mail_cache_write((string)$mbx['id'], $mail_folder, $rowsx, (int)($ares['total'] ?? count($rowsx)), $api_map);
                     continue;
                 }
-                // Cloud Mail 邮箱：不走 IMAP，走 Cloud Mail API（列表缓存、合并、分页都和上面一样）
-                if ((string)($mbx['kind'] ?? 'imap') === 'cloudmail') {
-                    $cloudmail_map = cloudmail_folder_map();
-                    $all_folders = array_merge($all_folders, $cloudmail_map);
-                    if (!isset($cloudmail_map[$mail_folder])) { $mail_note = 'Cloud Mail 只有收件箱和已发送，没有这个文件夹。'; continue; }
-                    $credx = decrypt_cred((string)$mbx['credential'], $key);
-                    $ctok = cloudmail_token_for((string)($mbx['cloudmail_panel'] ?? ''), (string)($mbx['cloudmail_login'] ?? ''), (string)$credx, (string)$mbx['id']);
-                    if ($ctok === '') { $unified_errors[] = (string)$mbx['email'] . '：Cloud Mail 登录失败，请检查面板登录邮箱和密码。'; continue; }
-                    [$caid, $cerr] = cloudmail_account_id_for((string)($mbx['cloudmail_panel'] ?? ''), $ctok, (string)$mbx['email']);
-                    if ($caid <= 0) { $unified_errors[] = (string)$mbx['email'] . '：' . $cerr; continue; }
-                    $cres = cloudmail_fetch_list((string)($mbx['cloudmail_panel'] ?? ''), $ctok, $caid, $mail_folder, 1, 30);
-                    if (isset($cres['error'])) { $unified_errors[] = (string)$mbx['email'] . '：' . (string)$cres['error']; continue; }
-                    $live_fetches++;
-                    $rowsx = (array)($cres['rows'] ?? []);
-                    foreach ($rowsx as $rx) {
-                        $rx['mb_id'] = $mbx['id'];
-                        $rx['mb_email'] = $mbx['email'];
-                        $merged[] = $rx;
-                    }
-                    mail_cache_write((string)$mbx['id'], $mail_folder, $rowsx, (int)($cres['total'] ?? count($rowsx)), $cloudmail_map);
-                    continue;
-                }
-                $credx = decrypt_cred((string)$mbx['credential'], $key);
                 [$fpx, $mapx, $merrx] = mail_connect_current($mbx, (string)$credx);
                 if (!$fpx) { $unified_errors[] = (string)$mbx['email'] . '：' . $merrx; continue; }
                 $opx = mail_imap_open_folder($fpx, $mail_folder, $mapx);
@@ -1736,65 +1609,30 @@ if (logged_in() && $cur_mb && in_array($tab, ['inbox', 'read', 'compose', 'attac
                 $mail_total = max((int)($cached['total'] ?? 0), count($mail_list));
             } else {
                 // Henna 邮箱：不走 IMAP，走 Henna API（缓存、TTL、刷新都和上面一样）
-                $henna_done = false;
-                if ((string)($cur_mb['kind'] ?? 'imap') === 'henna') {
-                    $henna_map = ['inbox' => 'in', 'sent' => 'out', 'drafts' => 'draft', 'spam' => 'spam', 'trash' => 'trash'];
-                    $mail_folders = $henna_map;
-                    if ($mail_folder === 'trash') {
-                        $mail_note = 'Henna 没有已删除：删了就是彻底删除，找不回来。';
+                // 域名邮箱：不走 IMAP，走适配器 API（缓存、TTL、刷新都和上面一样）
+                $api_done = false;
+                if (mc_api_is_api_kind((string)($cur_mb['kind'] ?? 'imap'))) {
+                    $api_kind = (string)($cur_mb['kind'] ?? 'imap');
+                    $api_map = mc_api_folder_map($api_kind);
+                    $mail_folders = $api_map;
+                    if (!isset($api_map[$mail_folder])) {
+                        $mail_note = mc_api_no_folder_msg($api_kind, $mail_folder);
                         $mail_list = [];
                         $mail_total = 0;
                     } else {
-                        $htok = henna_token_for((string)($cur_mb['henna_panel'] ?? ''), (string)($cur_mb['henna_login'] ?? ''), (string)$cur_cred, (string)$cur_mb['id']);
-                        if ($htok === '') {
-                            $mail_err = 'Henna 登录失败，请检查面板登录邮箱和密码。';
+                        $ares = mc_api_fetch_list($api_kind, $cur_mb, (string)$cur_cred, $mail_folder, $mail_page, 30);
+                        if (isset($ares['error'])) {
+                            $mail_err = (string)$ares['error'];
                         } else {
-                            $hres = henna_fetch_list((string)($cur_mb['henna_panel'] ?? ''), $htok, (string)$cur_mb['email'], $mail_folder, $mail_page, 30);
-                            if (isset($hres['error'])) {
-                                $mail_err = (string)$hres['error'];
-                            } else {
-                                $mail_list = (array)($hres['rows'] ?? []);
-                                $mail_total = (int)($hres['total'] ?? count($mail_list));
-                                // 只有第 1 页才写缓存（缓存里就是最新 30 封）
-                                if ($mail_page === 1) mail_cache_write((string)$cur_mb['id'], $mail_folder, $mail_list, $mail_total, $henna_map);
-                            }
+                            $mail_list = (array)($ares['rows'] ?? []);
+                            $mail_total = (int)($ares['total'] ?? count($mail_list));
+                            // 只有第 1 页才写缓存（缓存里就是最新 30 封）
+                            if ($mail_page === 1) mail_cache_write((string)$cur_mb['id'], $mail_folder, $mail_list, $mail_total, $api_map);
                         }
                     }
-                    $henna_done = true;
+                    $api_done = true;
                 }
-                // Cloud Mail 邮箱：不走 IMAP，走 Cloud Mail API（缓存、TTL、刷新都和上面一样）
-                $cloudmail_done = false;
-                if ((string)($cur_mb['kind'] ?? 'imap') === 'cloudmail') {
-                    $cloudmail_map = cloudmail_folder_map();
-                    $mail_folders = $cloudmail_map;
-                    if (!isset($cloudmail_map[$mail_folder])) {
-                        $mail_note = 'Cloud Mail 只有收件箱和已发送，没有这个文件夹。';
-                        $mail_list = [];
-                        $mail_total = 0;
-                    } else {
-                        $ctok = cloudmail_token_for((string)($cur_mb['cloudmail_panel'] ?? ''), (string)($cur_mb['cloudmail_login'] ?? ''), (string)$cur_cred, (string)$cur_mb['id']);
-                        if ($ctok === '') {
-                            $mail_err = 'Cloud Mail 登录失败，请检查面板登录邮箱和密码。';
-                        } else {
-                            [$caid, $cerr] = cloudmail_account_id_for((string)($cur_mb['cloudmail_panel'] ?? ''), $ctok, (string)$cur_mb['email']);
-                            if ($caid <= 0) {
-                                $mail_err = $cerr;
-                            } else {
-                                $cres = cloudmail_fetch_list((string)($cur_mb['cloudmail_panel'] ?? ''), $ctok, $caid, $mail_folder, $mail_page, 30);
-                                if (isset($cres['error'])) {
-                                    $mail_err = (string)$cres['error'];
-                                } else {
-                                    $mail_list = (array)($cres['rows'] ?? []);
-                                    $mail_total = (int)($cres['total'] ?? count($mail_list));
-                                    // 只有第 1 页才写缓存（缓存里就是最新 30 封）
-                                    if ($mail_page === 1) mail_cache_write((string)$cur_mb['id'], $mail_folder, $mail_list, $mail_total, $cloudmail_map);
-                                }
-                            }
-                        }
-                    }
-                    $cloudmail_done = true;
-                }
-                if (!$henna_done && !$cloudmail_done) {
+                if (!$api_done) {
                 [$fp, $map, $merr] = mail_connect_current($cur_mb, (string)$cur_cred);
                 if (!$fp) {
                     $mail_err = $merr;
@@ -1826,14 +1664,14 @@ if (logged_in() && $cur_mb && in_array($tab, ['inbox', 'read', 'compose', 'attac
                     }
                     mail_close($fp);
                 }
-                } // Henna 不走上面这段 IMAP
+                } // 域名邮箱不走上面这段 IMAP
             }
         }
     }
     // 读一封信：取全文、标已读、解析正文和附件
     // 三栏布局下 inbox 页带 uid 时也要在右栏读信，所以两个 tab 都算。
     if (in_array($tab, ['inbox', 'read'], true) && $mail_uid > 0) {
-        // 全部收件箱里读 Henna 的信：按链接里的 mb 找到这封信真正属于哪个邮箱
+        // 全部收件箱里读域名邮箱的信：按链接里的 mb 找到这封信真正属于哪个邮箱
         $read_mb = $cur_mb;
         $read_cred = $cur_cred;
         if ($mail_all) {
@@ -1841,77 +1679,36 @@ if (logged_in() && $cur_mb && in_array($tab, ['inbox', 'read', 'compose', 'attac
             foreach ($mailboxes as $mb) { if ($mb['id'] === $want_read_mb) { $read_mb = $mb; $read_cred = decrypt_cred((string)$mb['credential'], $key); break; } }
         }
         // Henna 邮箱：不走 IMAP，走 Henna API 取全文
-        $henna_read_done = false;
-        if ((string)($read_mb['kind'] ?? 'imap') === 'henna') {
-            $htok = henna_token_for((string)($read_mb['henna_panel'] ?? ''), (string)($read_mb['henna_login'] ?? ''), (string)$read_cred, (string)$read_mb['id']);
-            if ($htok === '') {
-                $mail_err = 'Henna 登录失败，请检查面板登录邮箱和密码。';
+        // 域名邮箱：不走 IMAP，走适配器 API 取全文
+        $api_read_done = false;
+        if (mc_api_is_api_kind((string)($read_mb['kind'] ?? 'imap'))) {
+            $api_kind = (string)($read_mb['kind'] ?? 'imap');
+            $amsg = mc_api_fetch_message($api_kind, $read_mb, (string)$read_cred, $mail_folder, $mail_uid);
+            if (isset($amsg['error'])) {
+                $mail_err = (string)$amsg['error'];
             } else {
-                $hmsg = henna_fetch_message((string)($read_mb['henna_panel'] ?? ''), $htok, $mail_uid);
-                if (isset($hmsg['error'])) {
-                    $mail_err = (string)$hmsg['error'];
-                } else {
-                    // 优先纯文本，没有就用 HTML 剥标签转纯文本
-                    $hbody = trim((string)($hmsg['text'] ?? ''));
-                    if ($hbody === '' && trim((string)($hmsg['html'] ?? '')) !== '') {
-                        $hbody = trim(html_entity_decode(strip_tags((string)$hmsg['html']), ENT_QUOTES, 'UTF-8'));
-                    }
-                    $mail_msg = [
-                        'uid' => $mail_uid,
-                        'from' => trim((string)($hmsg['from_name'] ?? '')) !== '' ? (string)$hmsg['from_name'] . ' <' . (string)$hmsg['from'] . '>' : (string)$hmsg['from'],
-                        'to' => (string)($hmsg['to'] ?? ''),
-                        'cc' => '',
-                        'subject' => (string)($hmsg['subject'] ?? ''),
-                        'date' => (string)($hmsg['date'] ?? ''),
-                        'body' => $hbody,
-                        'atts' => (array)($hmsg['attachments'] ?? []),
-                        'mb_id' => (string)$read_mb['id'],
-                        'mb_kind' => 'henna',
-                    ];
-                    henna_mark_read((string)($read_mb['henna_panel'] ?? ''), $htok, $mail_uid);
+                // 优先纯文本，没有就用 HTML 剥标签转纯文本
+                $abody = trim((string)($amsg['text'] ?? ''));
+                if ($abody === '' && trim((string)($amsg['html'] ?? '')) !== '') {
+                    $abody = trim(html_entity_decode(strip_tags((string)$amsg['html']), ENT_QUOTES, 'UTF-8'));
                 }
+                $mail_msg = [
+                    'uid' => $mail_uid,
+                    'from' => trim((string)($amsg['from_name'] ?? '')) !== '' ? (string)$amsg['from_name'] . ' <' . (string)$amsg['from'] . '>' : (string)$amsg['from'],
+                    'to' => (string)($amsg['to'] ?? ''),
+                    'cc' => '',
+                    'subject' => (string)($amsg['subject'] ?? ''),
+                    'date' => (string)($amsg['date'] ?? ''),
+                    'body' => $abody,
+                    'atts' => (array)($amsg['attachments'] ?? []),
+                    'mb_id' => (string)$read_mb['id'],
+                    'mb_kind' => $api_kind,
+                ];
+                mc_api_mark_read($api_kind, $read_mb, (string)$read_cred, $mail_uid);
             }
-            $henna_read_done = true;
+            $api_read_done = true;
         }
-        // Cloud Mail 邮箱：不走 IMAP，走 Cloud Mail API 取全文
-        $cloudmail_read_done = false;
-        if ((string)($read_mb['kind'] ?? 'imap') === 'cloudmail') {
-            $ctok = cloudmail_token_for((string)($read_mb['cloudmail_panel'] ?? ''), (string)($read_mb['cloudmail_login'] ?? ''), (string)$read_cred, (string)$read_mb['id']);
-            if ($ctok === '') {
-                $mail_err = 'Cloud Mail 登录失败，请检查面板登录邮箱和密码。';
-            } else {
-                [$caid, $cerr] = cloudmail_account_id_for((string)($read_mb['cloudmail_panel'] ?? ''), $ctok, (string)$read_mb['email']);
-                if ($caid <= 0) {
-                    $mail_err = $cerr;
-                } else {
-                    $cmsg = cloudmail_fetch_message((string)($read_mb['cloudmail_panel'] ?? ''), $ctok, $caid, $mail_folder, $mail_uid);
-                    if (isset($cmsg['error'])) {
-                        $mail_err = (string)$cmsg['error'];
-                    } else {
-                        // 优先纯文本，没有就用 HTML 剥标签转纯文本
-                        $cbody = trim((string)($cmsg['text'] ?? ''));
-                        if ($cbody === '' && trim((string)($cmsg['html'] ?? '')) !== '') {
-                            $cbody = trim(html_entity_decode(strip_tags((string)$cmsg['html']), ENT_QUOTES, 'UTF-8'));
-                        }
-                        $mail_msg = [
-                            'uid' => $mail_uid,
-                            'from' => trim((string)($cmsg['from_name'] ?? '')) !== '' ? (string)$cmsg['from_name'] . ' <' . (string)$cmsg['from'] . '>' : (string)$cmsg['from'],
-                            'to' => (string)($cmsg['to'] ?? ''),
-                            'cc' => '',
-                            'subject' => (string)($cmsg['subject'] ?? ''),
-                            'date' => (string)($cmsg['date'] ?? ''),
-                            'body' => $cbody,
-                            'atts' => (array)($cmsg['attachments'] ?? []),
-                            'mb_id' => (string)$read_mb['id'],
-                            'mb_kind' => 'cloudmail',
-                        ];
-                        cloudmail_mark_read((string)($read_mb['cloudmail_panel'] ?? ''), $ctok, [$mail_uid]);
-                    }
-                }
-            }
-            $cloudmail_read_done = true;
-        }
-        if (!$henna_read_done && !$cloudmail_read_done) {
+        if (!$api_read_done) {
         [$fp, $map, $merr] = mail_connect_current($cur_mb, (string)$cur_cred);
         if (!$fp) {
             $mail_err = $merr;
@@ -1944,7 +1741,7 @@ if (logged_in() && $cur_mb && in_array($tab, ['inbox', 'read', 'compose', 'attac
             }
             mail_close($fp);
         }
-        } // Henna 不走上面这段 IMAP
+        } // 域名邮箱不走上面这段 IMAP
     }
     // 写信预填：回复 / 转发先取原邮件；发信失败回来的草稿优先
     if ($tab === 'compose') {
@@ -1957,81 +1754,39 @@ if (logged_in() && $cur_mb && in_array($tab, ['inbox', 'read', 'compose', 'attac
             $is_reply = isset($_GET['reply']);
             if ($ref_uid > 0) {
                 // Henna 回复 / 转发：按链接里的 mb 找邮箱，走 Henna API 取原文拼引用
-                $henna_pref_done = false;
-                $pref_mb = $cur_mb;
-                $pref_cred = $cur_cred;
-                $want_pref_mb = (string)($_GET['mb'] ?? '');
-                foreach ($mailboxes as $mb) { if ($mb['id'] === $want_pref_mb) { $pref_mb = $mb; $pref_cred = decrypt_cred((string)$mb['credential'], $key); break; } }
-                if ((string)($pref_mb['kind'] ?? 'imap') === 'henna') {
-                    $htok = henna_token_for((string)($pref_mb['henna_panel'] ?? ''), (string)($pref_mb['henna_login'] ?? ''), (string)$pref_cred, (string)$pref_mb['id']);
-                    if ($htok !== '') {
-                        $hmsg = henna_fetch_message((string)($pref_mb['henna_panel'] ?? ''), $htok, $ref_uid);
-                        if (!isset($hmsg['error'])) {
-                            $hbody = trim((string)($hmsg['text'] ?? ''));
-                            if ($hbody === '' && trim((string)($hmsg['html'] ?? '')) !== '') {
-                                $hbody = trim(html_entity_decode(strip_tags((string)$hmsg['html']), ENT_QUOTES, 'UTF-8'));
-                            }
-                            $orig_from = trim((string)($hmsg['from_name'] ?? '')) !== '' ? (string)$hmsg['from_name'] . ' <' . (string)$hmsg['from'] . '>' : (string)$hmsg['from'];
-                            $orig_subj = (string)($hmsg['subject'] ?? '');
-                            $orig_date = (string)($hmsg['date'] ?? '');
-                            $quote = "\n\n--- 原邮件 ---\n发件人：" . $orig_from . "\n时间：" . $orig_date . "\n主题：" . $orig_subj . "\n\n" . $hbody;
-                            if ($is_reply) {
-                                $compose_prefill = [
-                                    'to' => (string)($hmsg['from'] ?? ''),
-                                    'cc' => '',
-                                    'subject' => (stripos($orig_subj, 'Re:') === 0 ? $orig_subj : 'Re: ' . $orig_subj),
-                                    'body' => $quote,
-                                ];
-                            } else {
-                                $compose_prefill = [
-                                    'to' => '',
-                                    'cc' => '',
-                                    'subject' => (stripos($orig_subj, 'Fwd:') === 0 ? $orig_subj : 'Fwd: ' . $orig_subj),
-                                    'body' => $quote,
-                                ];
-                            }
-                            $henna_pref_done = true;
+                // 域名邮箱回复 / 转发：按链接里的 mb 找邮箱，走适配器 API 取原文拼引用
+                $api_pref_done = false;
+                if (mc_api_is_api_kind((string)($pref_mb['kind'] ?? 'imap'))) {
+                    $api_kind = (string)($pref_mb['kind'] ?? 'imap');
+                    $amsg = mc_api_fetch_message($api_kind, $pref_mb, (string)$pref_cred, $mail_folder, $ref_uid);
+                    if (!isset($amsg['error'])) {
+                        $abody = trim((string)($amsg['text'] ?? ''));
+                        if ($abody === '' && trim((string)($amsg['html'] ?? '')) !== '') {
+                            $abody = trim(html_entity_decode(strip_tags((string)$amsg['html']), ENT_QUOTES, 'UTF-8'));
                         }
+                        $orig_from = trim((string)($amsg['from_name'] ?? '')) !== '' ? (string)$amsg['from_name'] . ' <' . (string)$amsg['from'] . '>' : (string)$amsg['from'];
+                        $orig_subj = (string)($amsg['subject'] ?? '');
+                        $orig_date = (string)($amsg['date'] ?? '');
+                        $quote = "\n\n--- 原邮件 ---\n发件人：" . $orig_from . "\n时间：" . $orig_date . "\n主题：" . $orig_subj . "\n\n" . $abody;
+                        if ($is_reply) {
+                            $compose_prefill = [
+                                'to' => (string)($amsg['from'] ?? ''),
+                                'cc' => '',
+                                'subject' => (stripos($orig_subj, 'Re:') === 0 ? $orig_subj : 'Re: ' . $orig_subj),
+                                'body' => $quote,
+                            ];
+                        } else {
+                            $compose_prefill = [
+                                'to' => '',
+                                'cc' => '',
+                                'subject' => (stripos($orig_subj, 'Fwd:') === 0 ? $orig_subj : 'Fwd: ' . $orig_subj),
+                                'body' => $quote,
+                            ];
+                        }
+                        $api_pref_done = true;
                     }
                 }
-                // Cloud Mail 回复 / 转发：按链接里的 mb 找邮箱，走 Cloud Mail API 取原文拼引用
-                $cloudmail_pref_done = false;
-                if ((string)($pref_mb['kind'] ?? 'imap') === 'cloudmail') {
-                    $ctok = cloudmail_token_for((string)($pref_mb['cloudmail_panel'] ?? ''), (string)($pref_mb['cloudmail_login'] ?? ''), (string)$pref_cred, (string)$pref_mb['id']);
-                    if ($ctok !== '') {
-                        [$caid, $cerr] = cloudmail_account_id_for((string)($pref_mb['cloudmail_panel'] ?? ''), $ctok, (string)$pref_mb['email']);
-                        if ($caid > 0) {
-                            $cmsg = cloudmail_fetch_message((string)($pref_mb['cloudmail_panel'] ?? ''), $ctok, $caid, $mail_folder, $ref_uid);
-                            if (!isset($cmsg['error'])) {
-                                $cbody = trim((string)($cmsg['text'] ?? ''));
-                                if ($cbody === '' && trim((string)($cmsg['html'] ?? '')) !== '') {
-                                    $cbody = trim(html_entity_decode(strip_tags((string)$cmsg['html']), ENT_QUOTES, 'UTF-8'));
-                                }
-                                $orig_from = trim((string)($cmsg['from_name'] ?? '')) !== '' ? (string)$cmsg['from_name'] . ' <' . (string)$cmsg['from'] . '>' : (string)$cmsg['from'];
-                                $orig_subj = (string)($cmsg['subject'] ?? '');
-                                $orig_date = (string)($cmsg['date'] ?? '');
-                                $quote = "\n\n--- 原邮件 ---\n发件人：" . $orig_from . "\n时间：" . $orig_date . "\n主题：" . $orig_subj . "\n\n" . $cbody;
-                                if ($is_reply) {
-                                    $compose_prefill = [
-                                        'to' => (string)($cmsg['from'] ?? ''),
-                                        'cc' => '',
-                                        'subject' => (stripos($orig_subj, 'Re:') === 0 ? $orig_subj : 'Re: ' . $orig_subj),
-                                        'body' => $quote,
-                                    ];
-                                } else {
-                                    $compose_prefill = [
-                                        'to' => '',
-                                        'cc' => '',
-                                        'subject' => (stripos($orig_subj, 'Fwd:') === 0 ? $orig_subj : 'Fwd: ' . $orig_subj),
-                                        'body' => $quote,
-                                    ];
-                                }
-                                $cloudmail_pref_done = true;
-                            }
-                        }
-                    }
-                }
-                if (!$henna_pref_done && !$cloudmail_pref_done) {
+                if (!$api_pref_done) {
                 [$fp, $map, $merr] = mail_connect_current($cur_mb, (string)$cur_cred);
                 if ($fp) {
                     $mail_folders = $map;
@@ -2068,7 +1823,7 @@ if (logged_in() && $cur_mb && in_array($tab, ['inbox', 'read', 'compose', 'attac
                     }
                     mail_close($fp);
                 }
-                } // Henna 不走上面这段 IMAP
+                } // 域名邮箱不走上面这段 IMAP
             }
         }
     }
@@ -2680,7 +2435,7 @@ if (logged_in() && $cur_mb && in_array($tab, ['inbox', 'read', 'compose', 'attac
                 <?php if (trim((string)($mm['snippet'] ?? '')) !== ''): ?><span class="snip"><?=e((string)$mm['snippet'])?></span><?php endif; ?>
               </a>
               <?php if ($mail_folder !== 'trash'): ?>
-              <form method="post" style="margin:0" onsubmit="return confirm('<?= $row_kind === 'henna' ? '确定彻底删除这封邮件吗？Henna 没有已删除，删了就找不回来。' : ($row_kind === 'cloudmail' ? '确定删除这封邮件吗？Cloud Mail 没有已删除，删了就找不回来。' : '确定删除这封邮件吗？会移到已删除。') ?>')"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="mail_move"><input type="hidden" name="mb" value="<?=e($row_mb)?>"><?php if ($mail_all): ?><input type="hidden" name="all" value="1"><?php endif; ?><input type="hidden" name="uid" value="<?= (int)$mm['uid'] ?>"><input type="hidden" name="folder" value="<?=e($mail_folder)?>"><input type="hidden" name="dest" value="trash"><button class="rowdel" title="删除这封邮件">🗑</button></form>
+              <form method="post" style="margin:0" onsubmit="return confirm('<?= mc_api_delete_confirm($row_kind) ?>')"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="mail_move"><input type="hidden" name="mb" value="<?=e($row_mb)?>"><?php if ($mail_all): ?><input type="hidden" name="all" value="1"><?php endif; ?><input type="hidden" name="uid" value="<?= (int)$mm['uid'] ?>"><input type="hidden" name="folder" value="<?=e($mail_folder)?>"><input type="hidden" name="dest" value="trash"><button class="rowdel" title="删除这封邮件">🗑</button></form>
               <?php endif; ?>
             </div>
             <?php endforeach; ?>
@@ -2717,7 +2472,7 @@ if (logged_in() && $cur_mb && in_array($tab, ['inbox', 'read', 'compose', 'attac
             <a class="btn ghost" href="?tab=inbox&amp;folder=<?=e($mail_folder)?>&amp;<?= $mail_all ? 'mb=all&amp;all=1' : 'mb=' . e($cur_mb['id']) ?>">返回列表</a>
           </p>
           <div>
-            <form method="post" style="display:inline" onsubmit="return confirm('<?= ($mail_msg['mb_kind'] ?? 'imap') === 'henna' ? '确定彻底删除这封邮件吗？Henna 没有已删除，删了就找不回来。' : (($mail_msg['mb_kind'] ?? 'imap') === 'cloudmail' ? '确定删除这封邮件吗？Cloud Mail 没有已删除，删了就找不回来。' : '确定把这封邮件移到垃圾箱吗？') ?>')"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="mail_move"><input type="hidden" name="mb" value="<?=e((string)($mail_msg['mb_id'] ?? $cur_mb['id']))?>"><?php if ($mail_all): ?><input type="hidden" name="all" value="1"><?php endif; ?><input type="hidden" name="uid" value="<?= (int)$mail_msg['uid'] ?>"><input type="hidden" name="folder" value="<?=e($mail_folder)?>"><input type="hidden" name="dest" value="spam"><button class="btn ghost"><?= ($mail_msg['mb_kind'] ?? 'imap') === 'henna' ? '彻底删除' : (($mail_msg['mb_kind'] ?? 'imap') === 'cloudmail' ? '删除' : '移到垃圾箱') ?></button></form>
+            <form method="post" style="display:inline" onsubmit="return confirm('<?= mc_api_delete_confirm((string)($mail_msg['mb_kind'] ?? 'imap'), 'spam') ?>')"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="mail_move"><input type="hidden" name="mb" value="<?=e((string)($mail_msg['mb_id'] ?? $cur_mb['id']))?>"><?php if ($mail_all): ?><input type="hidden" name="all" value="1"><?php endif; ?><input type="hidden" name="uid" value="<?= (int)$mail_msg['uid'] ?>"><input type="hidden" name="folder" value="<?=e($mail_folder)?>"><input type="hidden" name="dest" value="spam"><button class="btn ghost"><?= mc_api_delete_btn((string)($mail_msg['mb_kind'] ?? 'imap')) ?></button></form>
           </div>
           <?php endif; ?>
         </div>
@@ -2786,7 +2541,7 @@ if (logged_in() && $cur_mb && in_array($tab, ['inbox', 'read', 'compose', 'attac
               $m_group = trim((string)($m['group'] ?? '')) !== '' ? trim((string)$m['group']) : '未分组';
               if ($mb_group_filter !== '' && $m_group !== $mb_group_filter) continue; ?>
             <tr draggable="true" data-id="<?=e((string)$m['id'])?>">
-              <td class="email"><strong><?=e((string)$m['email'])?></strong><?php if (($m['auth'] ?? '') === 'ms'): ?> <span class="tag ok">微软登录</span><?php endif; ?><?php if (($m['kind'] ?? '') === 'henna'): ?> <span class="tag ok">Henna</span><?php endif; ?><?php if (($m['kind'] ?? '') === 'cloudmail'): ?> <span class="tag ok">Cloud Mail</span><?php endif; ?><br><span class="muted"><?=e((string)($m['display_name'] ?? ''))?> · <?=e((string)$m['provider'])?></span><form method="post" style="display:inline" onsubmit="return confirm('确定删除 <?=e((string)$m['email'])?> 吗？只删管理中心里的记录，不删邮箱本身。')"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?=e((string)$m['id'])?>"><button style="background:none;border:0;color:#dc2626;font-size:12px;cursor:pointer;padding:0;margin-left:6px">删除</button></form></td>
+              <td class="email"><strong><?=e((string)$m['email'])?></strong><?php if (($m['auth'] ?? '') === 'ms'): ?> <span class="tag ok">微软登录</span><?php endif; ?><?php if (mc_api_is_api_kind((string)($m['kind'] ?? ''))): ?> <span class="tag ok"><?=e(mc_api_label((string)$m['kind']))?></span><?php endif; ?><br><span class="muted"><?=e((string)($m['display_name'] ?? ''))?> · <?=e((string)$m['provider'])?></span><form method="post" style="display:inline" onsubmit="return confirm('确定删除 <?=e((string)$m['email'])?> 吗？只删管理中心里的记录，不删邮箱本身。')"><input type="hidden" name="csrf" value="<?=e(csrf())?>"><input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<?=e((string)$m['id'])?>"><button style="background:none;border:0;color:#dc2626;font-size:12px;cursor:pointer;padding:0;margin-left:6px">删除</button></form></td>
               <td>
                 <details class="gpick">
                   <summary><span class="tag" style="<?=group_tag_style($m_group)?>"><?=e($m_group)?></span><span class="fold">▾</span></summary>
@@ -2800,8 +2555,8 @@ if (logged_in() && $cur_mb && in_array($tab, ['inbox', 'read', 'compose', 'attac
                   </div>
                 </details>
               </td>
-              <td><?= ($m['kind'] ?? '') === 'henna' ? 'Henna 登录' : (($m['kind'] ?? '') === 'cloudmail' ? 'Cloud Mail 登录' : (($m['auth'] ?? '') === 'ms' ? '微软登录' : (($m['method'] ?? '') === 'password' ? '登录密码' : '授权码·应用专用密码'))) ?><br><a class="btn ghost" style="padding:4px 8px;font-size:13px;margin-top:6px" href="?tab=add&amp;edit=<?=e((string)$m['id'])?>">改登录方式</a></td>
-              <td class="muted"><?= ($m['kind'] ?? '') === 'henna' ? 'Henna：' . e((string)($m['henna_panel'] ?? '')) : (($m['kind'] ?? '') === 'cloudmail' ? 'Cloud Mail：' . e((string)($m['cloudmail_panel'] ?? '')) : e((string)$m['imap_host']) . ':' . (int)$m['imap_port']) ?></td>
+              <td><?= mc_api_is_api_kind((string)($m['kind'] ?? '')) ? mc_api_label((string)$m['kind']) . ' 登录' : ((($m['auth'] ?? '') === 'ms' ? '微软登录' : (($m['method'] ?? '') === 'password' ? '登录密码' : '授权码·应用专用密码'))) ?><br><a class="btn ghost" style="padding:4px 8px;font-size:13px;margin-top:6px" href="?tab=add&amp;edit=<?=e((string)$m['id'])?>">改登录方式</a></td>
+              <td class="muted"><?= mc_api_is_api_kind((string)($m['kind'] ?? '')) ? mc_api_label((string)$m['kind']) . '：' . e(mc_api_panel_of($m)) : e((string)$m['imap_host']) . ':' . (int)$m['imap_port'] ?></td>
               <td class="err">
                 <?php if (($m['status'] ?? '') === 'ok'): ?><span class="tag ok">连接成功</span>
                 <?php elseif (($m['status'] ?? '') === 'fail'): ?><span class="tag fail">连接失败</span>

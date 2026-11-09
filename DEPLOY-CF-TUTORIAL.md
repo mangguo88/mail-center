@@ -17,7 +17,7 @@
 
 **建一个公开库**（选 **Public**；代码里你个人的默认值已经清空，别人 fork 后填自己的地址和密钥就能用）：
 
-1. 打开 <https://github.com/new>，Repository name 填 `mangguo-mail-center`（名字随便起），选 **Public**，**不要勾** Add a README、.gitignore、license（建空库，不然 push 会冲突），点 Create repository。
+1. 打开 <https://github.com/new>，Repository name 填 `mail-center`（名字随便起），选 **Public**，**不要勾** Add a README、.gitignore、license（建空库，不然 push 会冲突），点 Create repository。
 2. 在你电脑上打开终端，进到这份代码的目录（这份教程的仓库根目录），依次跑：
    ```bash
    cd ~/workspace/email-aggregator/manage-center   # 你电脑上代码实际放的位置
@@ -29,7 +29,7 @@
 3. 把本地仓库连上 GitHub 刚建的空库并推上去（把 `你的用户名` 换成你自己的）：
    ```bash
    git branch -M main
-   git remote add origin https://github.com/你的用户名/mangguo-mail-center.git
+   git remote add origin https://github.com/你的用户名/mail-center.git
    git push -u origin main
    ```
    推的时候会弹 GitHub 登录（浏览器里点确认就行）。

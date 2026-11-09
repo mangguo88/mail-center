@@ -1,5 +1,31 @@
 # Mail 管理中心 — 版本记录
 
+## v4.30（2026-11-09）— 域名邮箱可扩展：通用适配器注册表，别人能自己加新的域名邮箱
+
+- 改了 4 个文件 + 新文件 2 个：`index.php`（3084 行 → 2840 行）、`henna.php`、`cloudmail.php`、`adapters.php`（新）、`adapter-template.php`（新，模板，不用传上服务器）；`imap.php` / `oauth.php` / `ms_oauth.php` 没动，不用传。CF Containers 部署：`Dockerfile` 的 COPY 清单加了 `adapters.php`（不加全站 500）。
+- **加一种新的域名邮箱不用改主程序了**：以前 Henna、Cloud Mail 是在 `index.php` 里一处一处写死的分支（添加表单、测试连接、列表、读信、发信、删信、附件、TG 跳过……约 25 处），现在全走 `manage/adapters.php` 里的注册表 `$MC_API_ADAPTERS` + 分发函数（`mc_api_test` / `mc_api_fetch_list` / `mc_api_fetch_message` / `mc_api_send` / `mc_api_delete` / `mc_api_download`……）。想加一种新的域名邮箱：复制 `manage/adapter-template.php` 改成 `manage/<kind>.php`，按注释把 HTTP 调用接上，再在注册表里加一行（label、面板地址文案、删信提示），厂商下拉、添加表单、测试、收发删全都有了。完整步骤和函数签名表见根目录 `ADAPTERS.md`。
+- **Henna / Cloud Mail 的函数签名统一了**：`_fetch_list`、`_fetch_message`、`_mark_read`、`_delete`、`_send`、`_download` 现在都按 `ADAPTERS.md` 的表来（多了 `$account_id` 参数，Henna 没有这个概念就忽略；`_fetch_list` 多了 `$address` 参数，Cloud Mail 用 `accountId`、忽略它）。两个适配器本身的行为没变：登录、文件夹、发信、删信逻辑一个字没动。
+- **添加表单改成按注册表循环生成**：厂商下拉里的 Henna / Cloud Mail 两项和两个蓝框（面板地址、登录账号、登录密码）现在都是从注册表循环画出来的，新 kind 自动出现；三个输入框的名字统一叫 `panel_url` / `panel_login` / `panel_password`，切厂商时藏起来的蓝框输入框会 `disabled`（不提交，不会串到别的 kind 去）；登录账号还是默认跟邮箱地址走，手动改过就不再自动跟。记录改存 `panel_url` / `panel_login`，旧字段 `henna_panel` / `henna_login`（或 `cloudmail_panel` / `cloudmail_login`）也留一份，方便回滚。
+- **旧记录不用重新加**：v4.30 之前加的 Henna / Cloud Mail 邮箱照常用，新代码先读 `panel_url` / `panel_login`，没有就回落去读旧字段；改一次登录方式后就按新字段存了。
+- **两个小变化**：① Henna 的文件夹映射本来就不含已删除，v4.30 起单邮箱列表里不再显示“已删除”按钮（以前点了也是空的，还会弹一句“没有已删除”的提示）；② 删信确认文案现在按注册表拼，Henna 还是“确定删除这封邮件吗？Henna 没有已删除：删了就是彻底删除，找不回来。”，Cloud Mail 还是“……Cloud Mail 没有已删除，删了就找不回来。”，意思没变。
+- **还没验证**：本地无 PHP、沙箱连不上邮箱服务器，全程没跑过真实登录。先传文件跑 `php -l`，再按顺序验证 Henna 和 Cloud Mail 全链路：①添加页选 Henna / Cloud Mail，点「测试连接」；②保存后打开收件箱和已发送看列表；③点开一封读信、点 ↻ 刷新看未读圆点消不消；④自己给自己发一封试发信；⑤删一封看确认文案和提示对不对；⑥有附件的点附件下载。TG 轮询还是跳过这两类（和 v4.29 一样），Cloud Mail 的 `/email/latest` 还是备着没接。
+- **更新命令（改了 4 个文件，先备份正在跑的 v4.29，再下载；`adapters.php` 必须和 `index.php` 一起传，缺了全站 500，`php -l` 查不出来）**：
+  ```
+  cd ~/domains/mangguo.lele.pp.ua/public_html
+  mkdir -p ~/mc-backup && cp index.php ~/mc-backup/index.php.before-v4.30 && cp henna.php ~/mc-backup/henna.php.before-v4.30 && cp cloudmail.php ~/mc-backup/cloudmail.php.before-v4.30
+  curl -L -o index.php "<新 index.php 直链>"
+  curl -L -o henna.php "<新 henna.php 直链>"
+  curl -L -o cloudmail.php "<新 cloudmail.php 直链>"
+  curl -L -o adapters.php "<新 adapters.php 直链>"
+  php -l index.php && php -l henna.php && php -l cloudmail.php && php -l adapters.php
+  ```
+- **回滚命令（回到 v4.29）**：
+  ```
+  cd ~/domains/mangguo.lele.pp.ua/public_html && cp ~/mc-backup/index.php.before-v4.30 index.php && cp ~/mc-backup/henna.php.before-v4.30 henna.php && cp ~/mc-backup/cloudmail.php.before-v4.30 cloudmail.php && rm -f adapters.php
+  ```
+  （回滚后旧记录照常用：v4.29 的代码读的就是旧字段。`adapter-template.php` 不用传上服务器，也不用删。）
+
+
 ## v4.29（2026-11-09）— TG 直连 Bot API + 消息推送卡片按图重做
 
 - 只改 index.php（3083 行），cloudmail.php / imap.php / henna.php / oauth.php / ms_oauth.php 没动，不用传。CF Containers 部署不用另外改，Dockerfile 拷的就是这 6 个文件，下次 push 自动带上。

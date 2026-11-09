@@ -47,8 +47,8 @@ GitHub Actions ── php -l 语法检查 ──► npx wrangler deploy
 
 ```
 manage-center/                  ← GitHub 仓库根目录
-  manage/                       ← 现成的 6 个 PHP 文件（不动）
-    index.php  imap.php  oauth.php  ms_oauth.php  henna.php  cloudmail.php
+  manage/                       ← 现成的 7 个 PHP 文件（不动；adapter-template.php 是给别人抄的模板，不进镜像）
+    index.php  imap.php  oauth.php  ms_oauth.php  henna.php  cloudmail.php  adapters.php
   Dockerfile                    ← PHP 8.2-FPM + Nginx 镜像
   wrangler.toml                 ← Worker + 容器 + 每 5 分钟 Cron 的配置
   package.json                  ← wrangler + @cloudflare/containers
