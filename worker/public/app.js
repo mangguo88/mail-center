@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v19';
+const APP_VERSION = 'v20';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -147,7 +147,7 @@ const FOLDER_NAMES = { inbox: '收件箱', sent: '已发送', drafts: '草稿箱
 // renderApp 开头会从 /api/status 读 CF 面板环境变量（MC_SIDEBAR_W / MC_MID_W / MC_AUTO_REFRESH_MS）
 // 来覆盖，没设就用默认值；读失败也用默认值，不影响进页面。
 const UI_CFG = { sidebarW: 240, midW: 220, autoRefreshMs: 30000 };
-const FOLDER_ORDER = ['inbox', 'sent', 'drafts', 'spam', 'trash'];
+const FOLDER_ORDER = ['inbox', 'spam', 'drafts', 'sent', 'trash'];
 
 function groupOf(mb) { return (mb.group_name || '').trim() || '未分组'; }
 function groupsOf(mbs) {
@@ -648,7 +648,7 @@ function renderInboxView(main) {
   main.innerHTML =
     '<div class="panes"><div class="pane-mid" id="paneMid" style="flex-basis:' + midW + 'px;width:' + midW + 'px">'
     + '<div class="card"><h2 id="inboxTitle">收件箱</h2>'
-    + '<div class="folders" id="folderPills"></div>'
+    + '<div class="folders folders-3" id="folderPills"></div>'
     + '<p class="muted" id="cacheLine"></p>'
     + '<div class="msglist" id="msgList"><p class="muted">正在取邮件…</p></div>'
     + '<div class="pager" id="pagerLine"></div>'
@@ -1169,7 +1169,9 @@ function renderMailboxesView(main) {
   let h = '<div class="card"><h2>邮箱管理</h2>'
     + '<p class="muted">这里只管“有哪些邮箱、能不能连上”。要看信，点左栏「我的邮箱」里点一个邮箱直接打开；要写信，点左栏「写信」。</p>';
   h += '</div>';
-  h += '<div class="card"><details class="addbar" id="addBar"><summary><span style="color:#16a34a">＋</span> 添加邮箱 <span class="fold">▾</span></summary>'
+  // 添加邮箱单独放在下面（原来在最上面，点开后表单会把下面的分组/表格顶下去，看着像下面的设置没了）。
+  // 没邮箱时默认展开，有邮箱时默认收起，点一下展开，表单就在表格下面，不挡上面的内容。
+  const addBarHtml = '<div class="card"><details class="addbar" id="addBar"' + (S.mailboxes.length ? '' : ' open') + '><summary><span style="color:#16a34a">＋</span> 添加邮箱 <span class="fold">▾</span></summary>'
     + '<p class="muted">先选登录方式，再填凭据。QQ 用授权码，Gmail 用应用专用密码；哪个能登上，取决于邮箱厂商那边的规则。保存时先测连接，通了才存。</p>'
     + '<div id="mbFormErr"></div>'
     + '<form id="mbForm" autocomplete="off">'
@@ -1195,7 +1197,7 @@ function renderMailboxesView(main) {
     + '</form></details></div>';
   h += '<div class="card">';
   if (!S.mailboxes.length) {
-    h += '<p class="muted">还没有邮箱，点上面「＋ 添加邮箱」加第一个吧。建议先加 QQ（用授权码），再加 Outlook / Gmail。</p>';
+    h += '<p class="muted">还没有邮箱，点下面「＋ 添加邮箱」加第一个吧。建议先加 QQ（用授权码），再加 Outlook / Gmail。</p>';
   } else {
     h += '<div class="folders"><a class="' + (S.mbFilter === '' ? 'on' : '') + '" data-gf="">全部（' + S.mailboxes.length + '）</a>'
       + order.map((g) => '<a class="' + (S.mbFilter === g ? 'on' : '') + '" data-gf="' + esc(g) + '">' + esc(g) + '（' + counts[g] + '）</a>').join('') + '</div>'
@@ -1223,6 +1225,8 @@ function renderMailboxesView(main) {
     h += '<p class="muted">拖动左栏邮箱可以调换顺序，左栏拖完自动保存。</p>';
   }
   h += '</div>';
+  // 添加邮箱单独放在邮箱管理（分组/表格）下面
+  h += addBarHtml;
 
   main.innerHTML = h;
   // 分组筛选
