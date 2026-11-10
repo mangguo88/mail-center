@@ -442,8 +442,12 @@ function fitSideWidth() {
   }
   const cap = window.innerWidth <= 640 ? 280 : 520;
   if (need > cap) need = cap;
+  // 最大宽就钉死在内容宽（刚好显示全邮箱名）：拖宽、拉窗口都超不过它，
+  // 免得侧栏再跟着页面拉伸变宽。
+  sideFitW = need;
   side.style.width = need + 'px';
-  side.style.minWidth = ''; side.style.maxWidth = '';
+  side.style.minWidth = '';
+  side.style.maxWidth = need + 'px';
 }
 function fitSideWidthSoon() {
   if (window.requestAnimationFrame) window.requestAnimationFrame(fitSideWidth);
@@ -452,37 +456,47 @@ function fitSideWidthSoon() {
 
 // 按住边线拖动改宽度时，松手后紧跟的 click 不要触发折叠（圆钮跟鼠标走，
 // 拖宽度时鼠标正好按在圆钮上，不加这个判断一拖就收起，看起来像“偶发变窄”）。
+// 拖宽用 window 级监听，不用 setPointerCapture——capture 会把松手后的 click
+// 重定向到边线，圆钮的 click 就收不到，点圆钮没反应就是这么来的。
+// 拖宽上限是内容宽 sideFitW（刚好显示全邮箱名），拖也拖不过它。
 let edgeDragged = false;
+let sideFitW = 520;
+let _drag = null;
+function _dragMove(e) {
+  if (!_drag) return;
+  _drag.moved = Math.max(_drag.moved, Math.abs(e.clientX - _drag.startX));
+  const w = Math.max(200, Math.min(sideFitW, _drag.startW + (e.clientX - _drag.startX)));
+  const side = $('#side');
+  if (!side) return;
+  side.style.width = w + 'px';
+  side.style.minWidth = '200px';
+  side.style.maxWidth = sideFitW + 'px';
+}
+function _dragUp() {
+  if (!_drag) return;
+  const wasDrag = _drag.moved > 4;
+  _drag = null;
+  window.removeEventListener('pointermove', _dragMove);
+  window.removeEventListener('pointerup', _dragUp);
+  if (wasDrag) {
+    edgeDragged = true;
+    setTimeout(() => { edgeDragged = false; }, 120);
+  }
+}
 function wireSideResizer() {
   const edge = $('#sideEdge');
   if (!edge) return;
-  let startX = 0, startW = 0, dragging = false, moved = 0, captured = false;
   edge.addEventListener('pointerdown', (e) => {
     if (window.innerWidth <= 640) return;
     if ($('#wrap').classList.contains('side-collapsed')) return; // 收起时不拖宽，点圆钮是展开
-    dragging = true; moved = 0; captured = false;
-    startX = e.clientX;
-    startW = $('#side').getBoundingClientRect().width;
-    e.preventDefault();
-  });
-  edge.addEventListener('pointermove', (e) => {
-    if (!dragging) return;
-    moved = Math.max(moved, Math.abs(e.clientX - startX));
-    // 真拖动了才抓指针（点一下不抓，免得 click 被重定向、圆钮点按失效）
-    if (moved > 4 && !captured) { try { edge.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ } captured = true; }
-    const w = Math.max(200, Math.min(520, startW + (e.clientX - startX)));
-    const side = $('#side');
-    side.style.width = w + 'px';
-    side.style.minWidth = '200px';
-    side.style.maxWidth = '520px';
-  });
-  edge.addEventListener('pointerup', () => {
-    if (!dragging) return;
-    dragging = false;
-    if (moved > 4) {
-      edgeDragged = true;
-      setTimeout(() => { edgeDragged = false; }, 120);
-    }
+    _drag = { startX: e.clientX, startW: $('#side').getBoundingClientRect().width, moved: 0 };
+    // 点在圆钮上时不 preventDefault，免得拦掉圆钮的 click；
+    // 点在边线空白处才 preventDefault，防止拖动时选中文字。
+    if (!e.target.closest || !e.target.closest('#edgeBtn')) e.preventDefault();
+    window.removeEventListener('pointermove', _dragMove);
+    window.removeEventListener('pointerup', _dragUp);
+    window.addEventListener('pointermove', _dragMove);
+    window.addEventListener('pointerup', _dragUp);
   });
 }
 
