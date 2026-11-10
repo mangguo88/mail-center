@@ -49,6 +49,14 @@ CREATE TABLE IF NOT EXISTS groups (
   created_at INTEGER NOT NULL DEFAULT 0
 );
 
+-- TG 轮询已通知的 UID（Phase 3）：每邮箱一行，uids 是 JSON 数组（最新 200 个）。
+-- 第一次跑只有基线、不推；之后只推不在表里的新 UID，每轮每邮箱最多 5 封。
+CREATE TABLE IF NOT EXISTS tg_seen (
+  mailbox_id TEXT PRIMARY KEY,
+  uids TEXT NOT NULL DEFAULT '[]',
+  updated_at INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS cache (
   id TEXT PRIMARY KEY,
   mailbox_id TEXT NOT NULL,

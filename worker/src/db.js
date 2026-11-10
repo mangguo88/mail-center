@@ -66,6 +66,25 @@ export async function deleteMailbox(db, id) {
   await db.prepare('DELETE FROM cache WHERE mailbox_id = ?1').bind(id).run();
 }
 
+// ---------- TG 轮询已通知 UID（每邮箱一行 JSON 数组） ----------
+export async function tgSeenGet(db, mbId) {
+  const row = await db.prepare('SELECT uids FROM tg_seen WHERE mailbox_id = ?1').bind(mbId).first();
+  if (!row) return [];
+  try {
+    const arr = JSON.parse(row.uids || '[]');
+    return Array.isArray(arr) ? arr.map((u) => parseInt(u, 10)).filter((u) => u > 0) : [];
+  } catch {
+    return [];
+  }
+}
+
+export async function tgSeenSet(db, mbId, uids) {
+  await db.prepare(
+    `INSERT INTO tg_seen (mailbox_id, uids, updated_at) VALUES (?1, ?2, ?3)
+     ON CONFLICT(mailbox_id) DO UPDATE SET uids=?2, updated_at=?3`,
+  ).bind(mbId, JSON.stringify(uids), Date.now()).run();
+}
+
 // ---------- 分组（单独建的空分组：还没加邮箱也能先建好，放这里） ----------
 // “未分组”在 mailboxes 里存的是空串，改名 / 计数时要换算。
 export function groupDbName(name) { return (name || '').trim() === '未分组' ? '' : (name || '').trim(); }

@@ -1,5 +1,5 @@
 // index.js — Mail Center Worker：登录、邮箱管理、收件箱、读信、发信（JSON API）+ 静态资源（Phase 2 界面）
-// 域名邮箱适配器、TG 轮询、Outlook 在 Phase 3。
+// TG 轮询在 Phase 3 已接（src/tg.js：Cron 每 5 分钟 + /api/tgcheck）；域名邮箱适配器、Outlook 还在 Phase 3。
 
 import {
   b64encode, randomBytes, sha256Hex, hexEncode,
@@ -17,6 +17,7 @@ import { smtpSend, buildSentRaw } from './smtp.js';
 import { parseMime, bestBody, decodeHeader, parseAddressHeader, b64ToBytes } from './mime.js';
 import { kvCacheGet, kvCachePut } from './cache.js';
 import { getRaw, storeRaw, getAttachment, storeAttachment, deleteMessageStore } from './store.js';
+import { tgSendDirect, tgCheckAll, tgSaveLastRun, tgNewKey, wrapTgKey, unwrapTgKey } from './tg.js';
 
 const te = new TextEncoder();
 const td = new TextDecoder();
@@ -250,6 +251,22 @@ export default {
       return json({ ok: true, service: 'mail-center', version: 'phase2', note: 'API 见 /api/*。', config: await effectiveConfig(env) });
     }
 
+    // TG 轮询入口（PHP 版的做法）：外部定时任务每 5 分钟调一次，不用登录，凭 tg_key 鉴权。
+    // 没开通知、key 不对都直接 403，不透露原因。CF Cron Trigger 是主路，这个地址是备用。
+    if (path === '/api/tgcheck' && method === 'GET') {
+      const site0 = await getSite(env.DB);
+      const key = url.searchParams.get('key') || '';
+      if (!site0 || !site0.tg_enabled || !key || !site0.tg_key || key !== site0.tg_key) {
+        return json({ ok: false, err: 'forbidden' }, 403);
+      }
+      const raw = await unwrapTgKey(env.DB, site0);
+      if (!raw) return json({ ok: false, err: 'TG 轮询密钥不可用：重新打开一次 TG 开关再试。' }, 500);
+      const ck = await importCredKey(raw);
+      const res = await tgCheckAll(env, ck, site0);
+      await tgSaveLastRun(env, res);
+      return json({ ok: true, checked: res.checked, sent: res.sent, notes: res.notes });
+    }
+
     // 非 API 请求走静态资源（SPA 首页、app.js、styles.css）。
     if (!path.startsWith('/api/')) {
       if (env.ASSETS) return env.ASSETS.fetch(req);
@@ -321,6 +338,7 @@ export default {
 
     if (path === '/api/settings' && method === 'GET') {
       const cfg = await effectiveConfig(env);
+      const stg = await getSettings(env.DB);
       return done(json({
         ok: true,
         username: site.username,
@@ -334,6 +352,8 @@ export default {
         tg_configured: !!(site.tg_bot_token && site.tg_chat_id),
         tg_chat_id: site.tg_chat_id || '',
         tg_token_masked: site.tg_bot_token ? '****' + String(site.tg_bot_token).slice(-4) : '',
+        tg_last_run: stg.tg_last_run || '',
+        tg_key: site.tg_key || '',
       }));
     }
 
@@ -363,8 +383,42 @@ export default {
         const tok = body.tg_bot_token.trim();
         if (tok !== '' && !tok.startsWith('****')) next.tg_bot_token = tok;
       }
+      // TG 开关动过才处理轮询密钥：开 → 没 tg_key 就生成一把，再把当前派生密钥包一份存 D1
+      // （Cron / tgcheck 靠这份包解邮箱凭据，不用登录）；关 → 删包，Cron 再也解不开。
+      const tgChanged = ('tg_enabled' in body) || ('tg_chat_id' in body) || ('tg_bot_token' in body);
+      if (tgChanged) {
+        if (next.tg_enabled) {
+          if (!next.tg_key) next.tg_key = tgNewKey();
+          const wrap = await wrapTgKey(await exportCredKeyRaw(credKey), next.tg_key);
+          await saveSettings(env.DB, { tg_wrap: wrap });
+        } else {
+          await saveSettings(env.DB, { tg_wrap: '' });
+        }
+      }
       await saveSite(env.DB, next);
       return done(json({ ok: true }));
+    }
+
+    // TG 发一条测试通知（直连 Bot，和真通知同一条路）。
+    if (path === '/api/settings/tg-test' && method === 'POST') {
+      if (!site.tg_enabled || !site.tg_bot_token || !site.tg_chat_id) {
+        return done(err('先把 TG 开关打开、填好 Bot Token 和 chat_id 再试。'));
+      }
+      const now = new Date(Date.now() + 8 * 3600 * 1000);
+      const p = (n) => String(n).padStart(2, '0');
+      const when = now.getUTCFullYear() + '-' + p(now.getUTCMonth() + 1) + '-' + p(now.getUTCDate()) + ' ' + p(now.getUTCHours()) + ':' + p(now.getUTCMinutes());
+      const r = await tgSendDirect(site.tg_bot_token, site.tg_chat_id,
+        '📧 测试通知\n邮箱管理中心的 TG 通知已接通，时间：' + when + '（北京时间）。以后有新邮件就会按这个格式推给你。');
+      if (!r.ok) return done(err(r.err));
+      return done(json({ ok: true }));
+    }
+
+    // TG 立即查一轮新邮件并通知（用当前登录的密钥；第一次跑只记基线、不推旧邮件）。
+    if (path === '/api/settings/tg-check-now' && method === 'POST') {
+      if (!site.tg_enabled) return done(err('先把 TG 通知开关打开再查。'));
+      const res = await tgCheckAll(env, credKey, site);
+      const lastRun = await tgSaveLastRun(env, res);
+      return done(json({ ok: true, checked: res.checked, sent: res.sent, notes: res.notes, last_run: lastRun }));
     }
 
     // 退出所有记住的设备：删掉除当前会话外的全部会话（当前浏览器不断线）。
@@ -399,6 +453,11 @@ export default {
         await saveMailbox(env.DB, next);
       }
       const nextSite = { ...site, salt: newSalt, pass_hash: await loginHash(nextPw, newSalt) };
+      // TG 开着的话，派生密钥变了要重包 tg_wrap，不然 Cron 解不开邮箱凭据。
+      if (nextSite.tg_enabled && nextSite.tg_key) {
+        const wrap = await wrapTgKey(await exportCredKeyRaw(newKey), nextSite.tg_key);
+        await saveSettings(env.DB, { tg_wrap: wrap });
+      }
       await saveSite(env.DB, nextSite);
       await sessionRevoke(env.DB, null);
       return json({ ok: true, relogin: true }, 200, { 'Set-Cookie': clearSessionCookieHeader() });
@@ -830,5 +889,21 @@ function sameInboxList(a, b) {
     }
 
     return err('接口不存在。', 404);
+  },
+
+  // CF Cron Trigger 每 5 分钟跑一次（wrangler.jsonc 里 triggers.crons）。
+  // 无人值守：从 D1 的 tg_wrap 解出派生密钥，不用登录。
+  async scheduled(event, env, ctx) {
+    try {
+      const site = await getSite(env.DB);
+      if (!site || !site.tg_enabled) return;
+      const raw = await unwrapTgKey(env.DB, site);
+      if (!raw) return;
+      const credKey = await importCredKey(raw);
+      const res = await tgCheckAll(env, credKey, site);
+      await tgSaveLastRun(env, res);
+    } catch {
+      // Cron 里失败不抛错、不重试，避免半夜反复推。
+    }
   },
 };

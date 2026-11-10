@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v21';
+const APP_VERSION = 'v22';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -317,6 +317,15 @@ async function renderApp() {
 async function loadMailboxes() {
   const d = await apiOk('/api/mailboxes');
   S.mailboxes = d.mailboxes || [];
+  // TG 通知里“点开看全文”的链接带 ?mb=<邮箱id>，打开就直接选中那个邮箱。
+  const wantMb = new URLSearchParams(location.search).get('mb') || '';
+  if (wantMb && S.mailboxes.find((m) => m.id === wantMb)) {
+    S.curMbId = wantMb;
+    S.curFolder = 'inbox';
+    S.curUid = 0;
+    S.curMsg = null;
+    return;
+  }
   if (!S.curMbId || !S.mailboxes.find((m) => m.id === S.curMbId)) {
     S.curMbId = S.mailboxes.length ? S.mailboxes[0].id : null;
     S.curFolder = 'inbox';
@@ -1511,7 +1520,11 @@ async function renderSettingsView(main) {
     + '<input type="text" id="tg_chat" value="' + esc(st.tg_chat_id || '') + '" placeholder="chat_id" autocomplete="off"></div></div>'
     + '<p class="muted">怎么拿这两个：① TG 里找 @BotFather，/newbot 建个机器人，复制 Token；② 找 @userinfobot 发任意消息，它回你的数字 ID 就是 chat_id；③ 先给你的机器人发一条消息（点 Start），不然它发不出去。上面两项都填了就直连 Telegram 发通知。Token 框里留着 **** 不动就是不改。</p>'
     + '<p><button class="btn">保存 TG 设置</button></p></form>'
-    + '<p class="muted">TG 每 5 分钟轮询在 Phase 3 接入；这里先保存开关与凭据。</p></div>'
+    + '<p class="muted">上次运行：' + esc(st.tg_last_run || '还没跑过') + '</p>'
+    + '<p><button class="btn ghost" id="tgTestBtn" type="button">发一条测试通知</button> <button class="btn ghost" id="tgCheckBtn" type="button">立即查一轮</button></p>'
+    + '<p class="muted">立即查一轮：第一次跑只记基线、不推旧邮件；之后有新邮件才推，每轮每邮箱最多 5 封。</p>'
+    + (st.tg_key ? '<label>外部定时任务地址（备用，CF 定时是主路）</label><input type="text" readonly value="' + esc(location.origin + '/api/tgcheck?key=' + st.tg_key) + '" onclick="this.select()" style="font-size:13px" title="点一下全选，复制去定时任务里填"><p class="muted">CF 的 Cron Trigger 每 5 分钟自动跑，不用再设；这个地址是给外部定时任务（比如 cron-job.org、Serv00 Cron）用的，每 5 分钟调一次就行，不用登录。key 别发给别人。</p>' : '<p class="muted">触发：CF 的 Cron Trigger 每 5 分钟自动跑（已写进部署配置）；打开 TG 开关保存后，这里会出现一条外部定时任务地址（备用）。</p>')
+    + '</div>'
     + '<div class="card"><h2>邮箱管理</h2><p class="muted">添加、编辑、测试连接、删除邮箱都在邮箱管理里。</p>'
     + '<p><button class="btn ghost" id="goMbBtn">去邮箱管理</button></p></div>';
   $('#setNameForm').addEventListener('submit', async (e) => {
@@ -1579,6 +1592,26 @@ async function renderSettingsView(main) {
       toast('TG 设置已保存。');
       renderSettingsView(main);
     } catch (err) { toast(err.message || '保存失败。'); }
+  });
+  const tgTestBtn = $('#tgTestBtn');
+  if (tgTestBtn) tgTestBtn.addEventListener('click', async () => {
+    tgTestBtn.disabled = true;
+    try {
+      await postJsonOk('/api/settings/tg-test', {});
+      toast('测试通知已发出，去 TG 看一眼。');
+    } catch (err) { toast(err.message || '测试通知没发出去。'); }
+    tgTestBtn.disabled = false;
+  });
+  const tgCheckBtn = $('#tgCheckBtn');
+  if (tgCheckBtn) tgCheckBtn.addEventListener('click', async () => {
+    tgCheckBtn.disabled = true;
+    tgCheckBtn.textContent = '正在查…';
+    try {
+      const d = await postJson('/api/settings/tg-check-now', {});
+      if (!d.ok) throw new Error(d.err || '查失败。');
+      toast('查了 ' + d.checked + ' 个邮箱，推了 ' + d.sent + ' 条 TG 通知。' + (d.notes && d.notes.length ? '备注：' + d.notes.join('；') : ''));
+      renderSettingsView(main);
+    } catch (err) { toast(err.message || '查失败。'); tgCheckBtn.disabled = false; tgCheckBtn.textContent = '立即查一轮'; }
   });
   $('#goMbBtn').addEventListener('click', () => { S.view = 'mailboxes'; renderSidebar(); renderMain(); });
 }
