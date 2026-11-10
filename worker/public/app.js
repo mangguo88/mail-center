@@ -874,7 +874,7 @@ function renderReader() {
   const recvAt = row && row.received_at ? row.received_at : null;
   const recvMs = recvAt ? parseMailDate(recvAt) : 0;
   const sendMs = parseMailDate(m.date);
-  const timeLine = (recvAt && recvMs && sendMs && Math.abs(recvMs - sendMs) > 60000)
+  const timeLine = (recvAt && recvMs && sendMs && Math.abs(recvMs - sendMs) > 1000)
     ? '收到：' + esc(fmtFullDate(recvAt)) + '（发信：' + esc(fmtFullDate(m.date)) + '）'
     : '时间：' + esc(fmtFullDate(recvAt || m.date));
   const hasText = !!(m.text && m.text.trim());
