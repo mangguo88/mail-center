@@ -121,6 +121,12 @@ export async function cacheClearMailbox(db, mbId) {
   await db.prepare('DELETE FROM cache WHERE mailbox_id = ?1').bind(mbId).run();
 }
 
+// 只让缓存“过期”，不删行：下次普通打开会重新取最新，但 cacheReadStale 还能读到旧底本，
+// 这样下次取列表时能沿用每封信的接收时间 received_at，不会被一次发信/删信就清掉。
+export async function cacheExpireMailbox(db, mbId) {
+  await db.prepare('UPDATE cache SET updated_at = 0 WHERE mailbox_id = ?1').bind(mbId).run();
+}
+
 // ---------- 会话（记住我） ----------
 export async function sessionIssue(db, { tokenHash, keyEnc, days, pwHash }) {
   const now = Date.now();

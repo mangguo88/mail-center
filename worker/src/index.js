@@ -9,7 +9,7 @@ import {
 import {
   getSite, saveSite, listMailboxes, getMailbox, saveMailbox, deleteMailbox,
   listGroups, saveGroup, deleteGroup, renameGroup, countGroupMailboxes, groupDbName,
-  cacheRead, cacheReadStale, cacheWrite, cacheClearMailbox, bumpCacheVersion,
+  cacheRead, cacheReadStale, cacheWrite, cacheExpireMailbox, bumpCacheVersion,
   sessionIssue, sessionGet, sessionTouch, sessionRevoke, sessionRevokeOthers,
 } from './db.js';
 import { connectMailbox } from './imap.js';
@@ -132,9 +132,11 @@ async function issueSession(env, site, password, rememberDays) {
 }
 
 // 列表缓存失效：D1 版本号 +1（KV 旧 key 自然失效）+ 清 D1 缓存。
+// 发信/删信/移动后让缓存失效：KV 靠版本号失效；D1 只把 updated_at 置 0（过期），
+// 不删行——删行会把每封信的接收时间 received_at 一起清掉，下次取列表就只能回落到发信时间。
 async function invalidateMailboxCache(env, mbId) {
   await bumpCacheVersion(env.DB, mbId);
-  await cacheClearMailbox(env.DB, mbId);
+  await cacheExpireMailbox(env.DB, mbId);
 }
 
 // 把原始全文解析成读信页的 JSON（R2 命中和 IMAP 现取共用）。
