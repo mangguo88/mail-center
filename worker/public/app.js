@@ -327,7 +327,7 @@ function renderSidebar() {
       h += '<a class="mb' + (mb.id === S.curMbId ? ' on' : '') + '" data-id="' + esc(mb.id) + '" data-group="' + esc(g) + '" draggable="true" title="' + esc(mb.email) + '">'
         + (unread ? '<span class="mb-unread" title="有 ' + unread + ' 封未读"></span>' : '')
         + esc(mb.email)
-        + (mb.id === S.curMbId ? '<span class="cur">● 当前</span>' : '')
+        + (mb.id === S.curMbId ? '<span class="cur">●</span>' : '')
         + '<span class="mb-dot" data-id="' + esc(mb.id) + '" data-email="' + esc(mb.email) + '" title="更多操作">⋮</span></a>';
     }
     h += '</details>';
@@ -417,14 +417,15 @@ function fitSideWidth() {
     side.style.width = ''; side.style.minWidth = ''; side.style.maxWidth = '';
     return;
   }
+  // 先收窄到 200 再量：邮箱行是块级元素，内容比行窄时 scrollWidth 返回的是行宽
+  // （也就是当前侧栏宽），直接量会越量越宽——窗口一拉就跟着涨，直到顶到上限。
+  // 收窄后 scrollWidth 就是内容的真实宽度，算出来刚好够显示全名，不多不少。
+  // （圆点现在是行内元素，会计入 scrollWidth，不用再单独加宽。）
+  side.style.width = '200px';
   let need = 200;
-  // 邮箱行 scrollWidth 量不到右边浮着的“● 当前”那块（它浮在行内、不撑出滚动宽），
-  // 只加 25 不够，实测会差十几像素、邮箱尾巴被截掉；有这块就把它的实测宽也加上。
   const consider = (el) => {
     if (!el) return;
-    let w = el.scrollWidth + 25;
-    const cur = el.querySelector && el.querySelector(':scope > .cur');
-    if (cur) w += cur.offsetWidth;
+    const w = el.scrollWidth + 25;
     if (w > need) need = w;
   };
   const box = side.querySelector('details.mblist');
