@@ -163,13 +163,15 @@ function withTimeout(promise, ms, msg) {
 // 发一封邮件（整体限时 60 秒）。QQ 正常 2~10 秒就能发完，超过 60 秒就是卡住了，
 // 直接报超时，别让页面一直转圈（之前实测卡了 3 分半钟没反应，也没报错）。
 export async function smtpSend(opts) {
+  // prog.step 记录当前卡在哪一步，超时报错时带上，方便定位是连不上、认证失败还是 DATA 之后没回音
+  const prog = { step: '开始连接' };
   return Promise.race([
-    smtpSendInner(opts),
-    new Promise((resolve) => setTimeout(() => resolve({ ok: false, err: '发送超时：60 秒内服务器没有回音，请检查网络后重试。' }), 60000)),
+    smtpSendInner(opts, prog),
+    new Promise((resolve) => setTimeout(() => resolve({ ok: false, err: '发送超时：60 秒内服务器没有回音（卡在' + prog.step + '），请检查网络后重试。' }), 60000)),
   ]);
 }
 
-async function smtpSendInner({ host, port, enc = 'tls', from, fromName = '', pass, to, cc = [], subject, body, html = '', attachments = [] }) {
+async function smtpSendInner({ host, port, enc = 'tls', from, fromName = '', pass, to, cc = [], subject, body, html = '', attachments = [] }, prog) {
   const toList = [...new Set([...to, ...cc].map((x) => (x || '').trim()).filter(Boolean))];
   const toOnly = [...new Set(to.map((x) => (x || '').trim()).filter(Boolean))];
   if (!host || !port || !from || !pass || toOnly.length === 0) {
@@ -178,6 +180,7 @@ async function smtpSendInner({ host, port, enc = 'tls', from, fromName = '', pas
   const secureTransport = enc === 'tls' ? 'starttls' : 'on';
   let socket;
   try {
+    prog.step = '连接 ' + host + ':' + port;
     socket = connect({ hostname: host, port }, { secureTransport });
     await withTimeout(socket.opened, 15000, 'timeout');
   } catch {
@@ -206,17 +209,20 @@ async function smtpSendInner({ host, port, enc = 'tls', from, fromName = '', pas
   };
 
   try {
+    prog.step = '等服务器问候（220）';
     const greet = await readReply();
     if (!greet.startsWith('220')) {
       await close();
       return { ok: false, err: `SMTP 服务器没有回应（${host}:${port}，${enc === 'ssl' ? 'SSL' : 'STARTTLS'}），可能是端口或加密方式不对：465 一般配 SSL，587 一般配 STARTTLS。` };
     }
+    prog.step = 'EHLO 问候';
     const ehlo = await sendCmd('EHLO localhost', ['250']);
     if (!ehlo.ok) {
       await close();
       return { ok: false, err: 'SMTP 问候（EHLO）被服务器拒绝。' };
     }
     if (enc === 'tls') {
+      prog.step = 'STARTTLS 加密';
       const st = await sendCmd('STARTTLS', ['220']);
       if (!st.ok) {
         await close();
@@ -227,6 +233,7 @@ async function smtpSendInner({ host, port, enc = 'tls', from, fromName = '', pas
       reader = new SmtpReader(secure.readable);
       writer = secure.writable.getWriter();
       await withTimeout(secure.opened, 15000, 'timeout');
+      prog.step = 'STARTTLS 之后 EHLO';
       const ehlo2 = await sendCmd('EHLO localhost', ['250']);
       if (!ehlo2.ok) {
         await close();
@@ -234,6 +241,7 @@ async function smtpSendInner({ host, port, enc = 'tls', from, fromName = '', pas
       }
     }
     // 先试 AUTH LOGIN，不行再试 AUTH PLAIN（DNSHE 只认 PLAIN）
+    prog.step = '认证（AUTH）';
     const auth = await sendCmd('AUTH LOGIN', ['334']);
     if (auth.ok) {
       const u = await sendCmd(b64(from), ['334']);
@@ -253,11 +261,13 @@ async function smtpSendInner({ host, port, enc = 'tls', from, fromName = '', pas
         return { ok: false, err: '服务器不支持 AUTH LOGIN 和 AUTH PLAIN，或拒绝认证。' };
       }
     }
+    prog.step = 'MAIL FROM 发件人';
     const mf = await sendCmd(`MAIL FROM:<${from}>`, ['250']);
     if (!mf.ok) {
       await close();
       return { ok: false, err: '发件人地址被服务器拒绝。' };
     }
+    prog.step = 'RCPT TO 收件人';
     for (const rcpt of toList) {
       const r = await sendCmd(`RCPT TO:<${rcpt}>`, ['250', '251']);
       if (!r.ok) {
@@ -265,6 +275,7 @@ async function smtpSendInner({ host, port, enc = 'tls', from, fromName = '', pas
         return { ok: false, err: `收件人 ${rcpt} 被服务器拒绝。` };
       }
     }
+    prog.step = 'DATA 写信阶段';
     const data = await sendCmd('DATA', ['354']);
     if (!data.ok) {
       await close();
@@ -274,8 +285,10 @@ async function smtpSendInner({ host, port, enc = 'tls', from, fromName = '', pas
     const lines = raw.split('\r\n').map((ln) => (ln.startsWith('.') ? '.' + ln : ln));
     let msg = lines.join('\r\n');
     if (!msg.endsWith('\r\n')) msg += '\r\n';
+    prog.step = '写正文内容';
     await writer.write(te.encode(msg));
     await writer.write(te.encode('.\r\n'));
+    prog.step = '等服务器接受（250）';
     const reply = await readReply();
     if (!reply.startsWith('250')) {
       await close();
