@@ -378,6 +378,8 @@ function renderSidebar() {
   });
   $('#edgeBtn').addEventListener('click', (e) => {
     e.stopPropagation();
+    // 刚才是按住拖动改宽度，不是点圆钮：别折叠（免得调宽度时误触收起）
+    if (edgeDragged) return;
     setSidebarCollapsed(!$('#wrap').classList.contains('side-collapsed'));
   });
   // 折叠圆钮跟鼠标走：鼠标移到边线哪儿，圆钮就出现在哪儿
@@ -443,21 +445,26 @@ function fitSideWidthSoon() {
   else fitSideWidth();
 }
 
+// 按住边线拖动改宽度时，松手后紧跟的 click 不要触发折叠（圆钮跟鼠标走，
+// 拖宽度时鼠标正好按在圆钮上，不加这个判断一拖就收起，看起来像“偶发变窄”）。
+let edgeDragged = false;
 function wireSideResizer() {
   const edge = $('#sideEdge');
   if (!edge) return;
-  let startX = 0, startW = 0, dragging = false;
+  let startX = 0, startW = 0, dragging = false, moved = 0, captured = false;
   edge.addEventListener('pointerdown', (e) => {
     if (window.innerWidth <= 640) return;
-    if (e.target.id === 'edgeBtn') return;
-    dragging = true;
+    if ($('#wrap').classList.contains('side-collapsed')) return; // 收起时不拖宽，点圆钮是展开
+    dragging = true; moved = 0; captured = false;
     startX = e.clientX;
     startW = $('#side').getBoundingClientRect().width;
-    edge.setPointerCapture(e.pointerId);
     e.preventDefault();
   });
   edge.addEventListener('pointermove', (e) => {
     if (!dragging) return;
+    moved = Math.max(moved, Math.abs(e.clientX - startX));
+    // 真拖动了才抓指针（点一下不抓，免得 click 被重定向、圆钮点按失效）
+    if (moved > 4 && !captured) { try { edge.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ } captured = true; }
     const w = Math.max(200, Math.min(520, startW + (e.clientX - startX)));
     const side = $('#side');
     side.style.width = w + 'px';
@@ -467,6 +474,10 @@ function wireSideResizer() {
   edge.addEventListener('pointerup', () => {
     if (!dragging) return;
     dragging = false;
+    if (moved > 4) {
+      edgeDragged = true;
+      setTimeout(() => { edgeDragged = false; }, 120);
+    }
   });
 }
 
