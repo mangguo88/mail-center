@@ -686,8 +686,15 @@ async function loadInbox(refresh, isAuto) {
   try {
     const d = await api('/api/inbox?mb=' + encodeURIComponent(mb.id) + '&folder=' + encodeURIComponent(S.curFolder) + (refresh ? '&refresh=1' : (isAuto ? '&check=1' : '')));
     if (!d.ok) throw new Error(d.err || '取收件箱失败。');
-    // 自动轮询：没变就什么都不动（不重画列表、不闪提示、不丢滚动位置）
-    if (isAuto && d.changed === false) return;
+    // 自动轮询：拿刚取回来的列表跟本页正在显示的比——不一样才重画，
+    // 一样就什么都不动（不重画、不闪提示、不丢滚动位置）。
+    // 不能只信服务端回的 changed：服务端缓存是多标签页共享的，别的标签页
+    // 先更新了缓存，这边再问就会拿到 changed=false，明明本页还没显示新信
+    // 却不重画，就得手动刷新才看得到——这就是老是要手动刷新的原因。
+    if (isAuto) {
+      const key = (arr) => (arr || []).map((m) => m.uid + ':' + (m.seen ? 1 : 0)).join(',');
+      if (S.list && d.list && key(S.list) === key(d.list)) return;
+    }
     const prevUids = new Set((S.list || []).map((m) => m.uid));
     const scrollTop = listEl ? listEl.scrollTop : 0;
     S.list = d.list || [];
