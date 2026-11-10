@@ -532,13 +532,30 @@ function sameInboxList(a, b) {
         const allUids = await client.uids();
         const latest = allUids.slice(-30).reverse();
         const list = sortNewestFirst(await client.fetchList(latest));
+        // 旧底本：用来比对有没有新信，也用来沿用每封信的接收时间（只读一次，check 模式复用）。
+        const stale = await cacheReadStale(env.DB, mb.id, folderLabel);
+        const staleList = stale && Array.isArray(stale.list) ? sortNewestFirst(stale.list.slice()) : null;
+        // 接收时间 received_at：这封信第一次被本站看到的时间（不是发信时间），列表里显示这个时间，
+        // 这样一眼就能看出从发信到本站收到隔了多久。旧缓存里有就沿用；没有的（这轮新到的信）记现在；
+        // 旧缓存里还没有接收时间字段（老版本存的）时回落到发信时间，显示和原来一样。
+        const nowIso = new Date().toISOString();
+        const prevRecv = {};
+        let hasRecvData = false;
+        if (staleList) {
+          for (const it of staleList) {
+            if (it && it.uid && it.received_at) { prevRecv[it.uid] = it.received_at; hasRecvData = true; }
+          }
+        }
+        for (const it of list) {
+          if (prevRecv[it.uid]) it.received_at = prevRecv[it.uid];
+          else if (hasRecvData) it.received_at = nowIso;
+          else it.received_at = it.date || nowIso;
+        }
         const payload = { list, total: opened.exists, folders: map, cached_at: new Date().toISOString() };
         if (check) {
           // 自动轮询：只在列表真的变了（新信/删信/已读状态变了）时才写 KV。
           // KV 写每天只有 1000 次，每分钟写一次半天就烧完了；没变时只刷新 D1 里的时间戳，
           // 下次打开页面直接读缓存，快，也不占 KV 额度。
-          const stale = await cacheReadStale(env.DB, mb.id, folderLabel);
-          const staleList = stale && Array.isArray(stale.list) ? sortNewestFirst(stale.list.slice()) : null;
           const changed = !stale || stale.total !== payload.total || !sameInboxList(staleList, payload.list);
           await cacheWrite(env.DB, mb.id, folderLabel, payload);
           if (changed) await kvCachePut(env, mb.id, folderLabel, version, payload, ttl);

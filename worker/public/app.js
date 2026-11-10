@@ -27,6 +27,9 @@ const dtfHM = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', hour
 const dtfYMD = new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit', day: '2-digit' });
 const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit' });
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
+// 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
+// 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
+function listTimeOf(m) { return (m && m.received_at) || (m && m.date) || ''; }
 function fmtListDate(raw) {
   const t = parseMailDate(raw);
   if (!t) return raw || '';
@@ -696,7 +699,7 @@ async function loadInbox(refresh, isAuto) {
   }
 }
 
-// ---------- 收件箱自动刷新：每 60 秒悄悄问一次有没有新邮件 ----------
+// ---------- 收件箱自动刷新：每 30 秒悄悄问一次有没有新邮件 ----------
 // 只在收件箱页面、标签页可见时跑；切到邮箱管理/设置页、或标签页藏起来时不跑，省额度。
 // 新邮件到了自动出现在列表里，不用再点 ↻ 刷新，也不用整页刷新。
 let inboxTimer = null;
@@ -706,7 +709,7 @@ function startInboxAutoRefresh() {
     if (document.hidden) return;
     if (!$('#msgList')) return;
     loadInbox(false, true);
-  }, 60000);
+  }, 30000);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
     if (!$('#msgList')) return;
@@ -785,7 +788,7 @@ function renderInboxList() {
   const groups = {};
   const order = [];
   for (const m of S.list) {
-    const k = monthKeyOf(m.date);
+    const k = monthKeyOf(listTimeOf(m));
     if (!groups[k]) { groups[k] = []; order.push(k); }
     groups[k].push(m);
   }
@@ -798,7 +801,7 @@ function renderInboxList() {
       h += '<div class="mrow' + (m.seen ? '' : ' unread') + (m.uid === S.curUid ? ' on' : '') + '" data-uid="' + m.uid + '">'
         + '<a class="open"><span class="rowtop"><span class="rowleft">' + (m.seen ? '' : '<span class="dot"></span>')
         + '<span class="from">' + esc(m.from_name || m.from_addr || '(未知发件人)') + '</span></span>'
-        + '<span class="rowright"><span class="date">' + esc(fmtListDate(m.date)) + '</span></span></span>'
+        + '<span class="rowright"><span class="date">' + esc(fmtListDate(listTimeOf(m))) + '</span></span></span>'
         + '<span class="subj">' + esc(m.subject !== '' ? m.subject : '（无主题）') + '</span>'
         + (m.snippet ? '<span class="snip">' + esc(m.snippet) + '</span>' : '')
         + '</a>'
@@ -866,12 +869,20 @@ function renderReader() {
   const card = $('#readerCard');
   const m = S.curMsg;
   if (!card || !m) return;
+  // 收到时间取列表里那行的 received_at；和发信时间差 1 分钟以上时并列显示，方便看时间差
+  const row = S.list.find((x) => x.uid === S.curUid);
+  const recvAt = row && row.received_at ? row.received_at : null;
+  const recvMs = recvAt ? parseMailDate(recvAt) : 0;
+  const sendMs = parseMailDate(m.date);
+  const timeLine = (recvAt && recvMs && sendMs && Math.abs(recvMs - sendMs) > 60000)
+    ? '收到：' + esc(fmtFullDate(recvAt)) + '（发信：' + esc(fmtFullDate(m.date)) + '）'
+    : '时间：' + esc(fmtFullDate(recvAt || m.date));
   const hasText = !!(m.text && m.text.trim());
   const hasHtml = !!(m.html && m.html.trim());
   const bodyMode = hasText ? 'text' : (hasHtml ? 'html' : 'text');
   card.innerHTML =
     '<h2>' + esc(m.subject !== '' ? m.subject : '（无主题）') + '</h2>'
-    + '<p class="reader-meta">发件人：' + esc(m.from_raw || ((m.from_name || '') + ' ' + (m.from_addr || ''))) + '<br>收件人：' + esc(m.to || '') + (m.cc ? '<br>抄送：' + esc(m.cc) : '') + '<br>时间：' + esc(fmtFullDate(m.date)) + '</p>'
+    + '<p class="reader-meta">发件人：' + esc(m.from_raw || ((m.from_name || '') + ' ' + (m.from_addr || ''))) + '<br>收件人：' + esc(m.to || '') + (m.cc ? '<br>抄送：' + esc(m.cc) : '') + '<br>' + timeLine + '</p>'
     + (hasText && hasHtml
       ? '<p><span class="seg" id="bodySeg"><button data-mode="text" class="' + (bodyMode === 'text' ? 'on' : '') + '">纯文本</button><button data-mode="html" class="' + (bodyMode === 'html' ? 'on' : '') + '">HTML 版</button></span></p>'
       : '')
