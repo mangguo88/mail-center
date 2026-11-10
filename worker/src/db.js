@@ -5,6 +5,24 @@ export async function getSite(db) {
   return row || null;
 }
 
+// ---------- 管理面板可调设置（键值表：自动刷新 / 每页几封 / 发信超时） ----------
+// CF 面板环境变量（MC_AUTO_REFRESH_MS 等）优先于这里的值；没在 CF 面板设才用这里的。
+export async function getSettings(db) {
+  const { results } = await db.prepare('SELECT key, value FROM settings').all();
+  const out = {};
+  for (const r of results || []) out[r.key] = r.value;
+  return out;
+}
+
+export async function saveSettings(db, obj) {
+  for (const [k, v] of Object.entries(obj)) {
+    await db.prepare(
+      `INSERT INTO settings (key, value) VALUES (?1, ?2)
+       ON CONFLICT(key) DO UPDATE SET value=?2`,
+    ).bind(k, String(v)).run();
+  }
+}
+
 export async function saveSite(db, site) {
   await db.prepare(
     `INSERT INTO site (id, username, pass_hash, salt, display_name, cache_ttl, tg_enabled, tg_bot_token, tg_chat_id, tg_key)

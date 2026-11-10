@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v18';
+const APP_VERSION = 'v19';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -1479,6 +1479,15 @@ async function renderSettingsView(main) {
     + '<input type="number" id="set_ttl" min="0" max="60" step="1" value="' + (st.cache_ttl == null ? 1 : st.cache_ttl) + '">'
     + '<p class="muted">1 分钟内再进收件箱直接读缓存、秒进；点刷新随时取最新、不受这个时间限制；新邮件最多晚这个时间出现。</p>'
     + '<p><button class="btn ghost">保存缓存时间</button></p></form>'
+    + '<form id="setTuneForm" autocomplete="off"><label>自动刷新间隔（毫秒）</label>'
+    + '<input type="number" id="set_refresh" min="5000" max="300000" step="1000" value="' + (st.auto_refresh_ms == null ? 30000 : st.auto_refresh_ms) + '"' + ((st.env_locked && st.env_locked.autoRefreshMs) ? ' disabled' : '') + '>'
+    + '<p class="muted">30000 就是 30 秒；改小了新邮件来得快，但查得更勤。</p>'
+    + '<label>每页显示几封</label>'
+    + '<input type="number" id="set_limit" min="5" max="100" step="1" value="' + (st.inbox_limit == null ? 30 : st.inbox_limit) + '"' + ((st.env_locked && st.env_locked.inboxLimit) ? ' disabled' : '') + '>'
+    + '<label>发信超时（毫秒）</label>'
+    + '<input type="number" id="set_smtp_timeout" min="10000" max="120000" step="1000" value="' + (st.smtp_timeout_ms == null ? 60000 : st.smtp_timeout_ms) + '"' + ((st.env_locked && st.env_locked.smtpTimeoutMs) ? ' disabled' : '') + '>'
+    + '<p class="muted">60000 就是 60 秒。CF 面板上设了同名变量（MC_AUTO_REFRESH_MS / MC_INBOX_LIMIT / MC_SMTP_TIMEOUT_MS）的那项会灰掉，以 CF 面板的值为准，这里改了也不生效；没设的在这里改，保存后立刻生效。</p>'
+    + '<p><button class="btn ghost">保存收件与发信设置</button></p></form>'
     + '<form id="setPassForm" autocomplete="off"><label>当前站点密码</label>'
     + '<input type="password" id="set_cur" autocomplete="current-password" required>'
     + '<label>新站点密码（至少 4 位）</label><input type="password" id="set_new" autocomplete="new-password" required>'
@@ -1519,6 +1528,22 @@ async function renderSettingsView(main) {
     try {
       await postJsonOk('/api/settings', { cache_ttl: ttl });
       toast('缓存时间已保存。');
+    } catch (err) { toast(err.message || '保存失败。'); }
+  });
+  $('#setTuneForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const ar = parseInt($('#set_refresh').value, 10);
+    const il = parseInt($('#set_limit').value, 10);
+    const st2 = parseInt($('#set_smtp_timeout').value, 10);
+    if (isNaN(ar) || ar < 5000 || ar > 300000) { toast('自动刷新间隔填 5000–300000 毫秒。'); return; }
+    if (isNaN(il) || il < 5 || il > 100) { toast('每页显示填 5–100 封。'); return; }
+    if (isNaN(st2) || st2 < 10000 || st2 > 120000) { toast('发信超时填 10000–120000 毫秒。'); return; }
+    try {
+      await postJsonOk('/api/settings', { auto_refresh_ms: ar, inbox_limit: il, smtp_timeout_ms: st2 });
+      UI_CFG.autoRefreshMs = ar;
+      if (inboxTimer) { clearInterval(inboxTimer); inboxTimer = null; }
+      startInboxAutoRefresh();
+      toast('收件与发信设置已保存，立刻生效。');
     } catch (err) { toast(err.message || '保存失败。'); }
   });
   $('#setPassForm').addEventListener('submit', async (e) => {

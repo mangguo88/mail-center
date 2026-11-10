@@ -7,7 +7,7 @@ import {
   encryptCred, decryptCred, wrapKeyForToken, unwrapKeyForToken,
 } from './crypto.js';
 import {
-  getSite, saveSite, listMailboxes, getMailbox, saveMailbox, deleteMailbox,
+  getSite, saveSite, getSettings, saveSettings, listMailboxes, getMailbox, saveMailbox, deleteMailbox,
   listGroups, saveGroup, deleteGroup, renameGroup, countGroupMailboxes, groupDbName,
   cacheRead, cacheReadStale, cacheWrite, cacheExpireMailbox, bumpCacheVersion,
   sessionIssue, sessionGet, sessionTouch, sessionRevoke, sessionRevokeOthers,
@@ -27,17 +27,46 @@ const REMEMBER_DAYS = [90, 180, 365];
 // 变量名：MC_INBOX_LIMIT（每页几封，默认 30）、MC_SMTP_TIMEOUT_MS（发信超时毫秒，默认 60000）、
 // MC_SIDEBAR_W（左栏宽 px，默认 240）、MC_MID_W（收件栏默认宽 px，默认 220）、
 // MC_AUTO_REFRESH_MS（自动刷新间隔毫秒，默认 30000）。
-function uiConfig(env) {
+// 另外两个面板变量：MC_DISPLAY_NAME（设置面板名称，如 芒果邮箱管理中心，不填用数据库里的）、
+// MC_ADMIN_USER（登入账号，不填用数据库里的账号；密码仍用数据库里的站点密码）。
+// 注意：站点密码没有对应的环境变量——站点密码不只是登录口令，还是解密邮箱凭据的密钥，
+// 改密码必须走设置页的改密码（会把所有邮箱凭据用新密钥重加密），单改一个环境变量会让邮箱全登不上。
+function uiConfig(env, settings = {}) {
   const num = (v, d) => {
     const n = parseInt(String(v == null ? '' : v), 10);
     return Number.isFinite(n) && n > 0 ? n : d;
   };
+  const str = (v) => String(v == null ? '' : v).trim();
+  // 三个值优先级：CF 面板环境变量 > 管理面板设置（D1 settings 表）> 默认值。
+  // 管理面板里改了就存在 D1，立刻生效；CF 面板上设了同名变量就以 CF 的为准，管理面板里那项会显示“已锁定”。
   return {
-    inboxLimit: num(env.MC_INBOX_LIMIT, 30),
-    smtpTimeoutMs: num(env.MC_SMTP_TIMEOUT_MS, 60000),
+    inboxLimit: num(env.MC_INBOX_LIMIT ?? settings.inbox_limit, 30),
+    smtpTimeoutMs: num(env.MC_SMTP_TIMEOUT_MS ?? settings.smtp_timeout_ms, 60000),
     sidebarW: num(env.MC_SIDEBAR_W, 240),
     midW: num(env.MC_MID_W, 220),
-    autoRefreshMs: num(env.MC_AUTO_REFRESH_MS, 30000),
+    autoRefreshMs: num(env.MC_AUTO_REFRESH_MS ?? settings.auto_refresh_ms, 30000),
+    displayName: str(env.MC_DISPLAY_NAME),
+    adminUser: str(env.MC_ADMIN_USER).toLowerCase(),
+    envLocked: {
+      inboxLimit: env.MC_INBOX_LIMIT != null && String(env.MC_INBOX_LIMIT).trim() !== '',
+      smtpTimeoutMs: env.MC_SMTP_TIMEOUT_MS != null && String(env.MC_SMTP_TIMEOUT_MS).trim() !== '',
+      autoRefreshMs: env.MC_AUTO_REFRESH_MS != null && String(env.MC_AUTO_REFRESH_MS).trim() !== '',
+    },
+  };
+}
+async function effectiveConfig(env) {
+  let settings = {};
+  try { settings = await getSettings(env.DB); } catch { settings = {}; }
+  return uiConfig(env, settings);
+}
+// 面板变量覆盖数据库里的显示名和登录账号（密码仍走数据库，不覆盖）。
+function effectiveSite(env, site) {
+  if (!site) return site;
+  const cfg = uiConfig(env);
+  return {
+    ...site,
+    username: cfg.adminUser || site.username,
+    display_name: cfg.displayName || site.display_name,
   };
 }
 const SESSION_COOKIE = 'mc_session';
@@ -126,7 +155,7 @@ async function requireAuth(req, env) {
     void exp;
     setCookie = sessionCookieHeader(hex, row.days >= 90 ? row.days * 86400 : undefined);
   }
-  return { authed: true, site, credKey, tokenHash, setCookie };
+  return { authed: true, site: effectiveSite(env, site), credKey, tokenHash, setCookie };
 }
 
 function withAuthCookie(resp, setCookie) {
@@ -218,7 +247,7 @@ export default {
 
     // 健康检查（原来 GET / 的状态 JSON 搬到这里）。
     if (path === '/api/status' && method === 'GET') {
-      return json({ ok: true, service: 'mail-center', version: 'phase2', note: 'API 见 /api/*。', config: uiConfig(env) });
+      return json({ ok: true, service: 'mail-center', version: 'phase2', note: 'API 见 /api/*。', config: await effectiveConfig(env) });
     }
 
     // 非 API 请求走静态资源（SPA 首页、app.js、styles.css）。
@@ -233,14 +262,15 @@ export default {
       if (body === null) return err('请求体不是合法 JSON。');
       const existing = await getSite(env.DB);
       if (existing) return err('站点已经设置过了，请直接登录。');
-      const username = String(body.username || 'admin').trim().toLowerCase() || 'admin';
+      const cfg0 = uiConfig(env);
+      const username = String(body.username || cfg0.adminUser || 'admin').trim().toLowerCase() || 'admin';
       const password = String(body.password || '');
       if (password.length < 4) return err('站点密码至少 4 位。');
       const salt = b64encode(randomBytes(16));
       const passHash = await loginHash(password, salt);
       const site = {
         username, pass_hash: passHash, salt,
-        display_name: String(body.display_name || '芒果邮箱管理中心'),
+        display_name: String(body.display_name || cfg0.displayName || '芒果邮箱管理中心'),
         cache_ttl: 1, tg_enabled: 0, tg_bot_token: '', tg_chat_id: '', tg_key: '',
       };
       await saveSite(env.DB, site);
@@ -257,15 +287,18 @@ export default {
       if (body === null) return err('请求体不是合法 JSON。');
       const site = await getSite(env.DB);
       if (!site) return err('还没有设置站点密码。', 401);
+      const eff = effectiveSite(env, site);
       const username = String(body.username || '').trim().toLowerCase();
       const password = String(body.password || '');
-      if (username !== String(site.username).toLowerCase()) return err('账号或密码不对。', 401);
+      // 登录账号认两个：数据库里的账号，和面板变量 MC_ADMIN_USER（密码仍是数据库里的站点密码）。
+      const allowed = [String(site.username).toLowerCase(), eff.username.toLowerCase()].filter(Boolean);
+      if (!allowed.includes(username)) return err('账号或密码不对。', 401);
       const hash = await loginHash(password, site.salt);
       if (hash !== site.pass_hash) return err('账号或密码不对。', 401);
       const days = REMEMBER_DAYS.includes(body.remember_days) ? body.remember_days : 0;
       const s = await issueSession(env, site, password, days);
       return json(
-        { ok: true, username: site.username, display_name: site.display_name },
+        { ok: true, username: eff.username, display_name: eff.display_name },
         200,
         { 'Set-Cookie': sessionCookieHeader(s.hex, s.maxAge) },
       );
@@ -287,11 +320,16 @@ export default {
     }
 
     if (path === '/api/settings' && method === 'GET') {
+      const cfg = await effectiveConfig(env);
       return done(json({
         ok: true,
         username: site.username,
         display_name: site.display_name,
         cache_ttl: site.cache_ttl,
+        auto_refresh_ms: cfg.autoRefreshMs,
+        inbox_limit: cfg.inboxLimit,
+        smtp_timeout_ms: cfg.smtpTimeoutMs,
+        env_locked: cfg.envLocked,
         tg_enabled: !!site.tg_enabled,
         tg_configured: !!(site.tg_bot_token && site.tg_chat_id),
         tg_chat_id: site.tg_chat_id || '',
@@ -305,6 +343,19 @@ export default {
       const next = { ...site };
       if (typeof body.display_name === 'string' && body.display_name.trim()) next.display_name = body.display_name.trim();
       if (Number.isInteger(body.cache_ttl) && body.cache_ttl >= 0 && body.cache_ttl <= 60) next.cache_ttl = body.cache_ttl;
+      // 收件与发信三项（管理面板里改，存 D1；CF 面板同名环境变量设了就以 CF 的为准，这里改了也不生效）。
+      const tune = {};
+      const tuneInt = (v, lo, hi) => {
+        const n = parseInt(v, 10);
+        return Number.isFinite(n) && n >= lo && n <= hi ? n : null;
+      };
+      const ar = tuneInt(body.auto_refresh_ms, 5000, 300000);
+      if (ar !== null) tune.auto_refresh_ms = ar;
+      const il = tuneInt(body.inbox_limit, 5, 100);
+      if (il !== null) tune.inbox_limit = il;
+      const st = tuneInt(body.smtp_timeout_ms, 10000, 120000);
+      if (st !== null) tune.smtp_timeout_ms = st;
+      if (Object.keys(tune).length) await saveSettings(env.DB, tune);
       // TG 推送：开关 + chat_id + Bot Token（Token 留空或填 **** 开头 = 不改）。
       if (typeof body.tg_enabled === 'boolean') next.tg_enabled = body.tg_enabled ? 1 : 0;
       if (typeof body.tg_chat_id === 'string') next.tg_chat_id = body.tg_chat_id.trim();
@@ -551,7 +602,7 @@ function sameInboxList(a, b) {
         const opened = await client.openFolder(folderLabel, map);
         if (!opened.ok) return done(err(`打不开文件夹：${opened.err || '服务器没有这个文件夹。'}`));
         const allUids = await client.uids();
-        const latest = allUids.slice(-uiConfig(env).inboxLimit).reverse();
+        const latest = allUids.slice(-(await effectiveConfig(env)).inboxLimit).reverse();
         const list = sortNewestFirst(await client.fetchList(latest));
         // 旧底本：用来比对有没有新信，也用来沿用每封信的接收时间（只读一次，check 模式复用）。
         const stale = await cacheReadStale(env.DB, mb.id, folderLabel);
@@ -708,7 +759,7 @@ function sameInboxList(a, b) {
       const res = await smtpSend({
         host: mb.smtp_host, port: mb.smtp_port, enc: mb.smtp_enc || 'tls',
         from: fromAddr, fromName, pass, to, cc, subject, body: text, html, attachments: atts,
-        timeoutMs: uiConfig(env).smtpTimeoutMs,
+        timeoutMs: (await effectiveConfig(env)).smtpTimeoutMs,
       });
       if (!res.ok) return done(err(res.err));
       // 尽力把副本存进已发送（失败不影响“已发出”的结果）。
