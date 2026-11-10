@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v15';
+const APP_VERSION = 'v16';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -624,7 +624,9 @@ function selectMailbox(mbId) {
 
 // ---------- 收件箱（三栏：列表 + 读信） ----------
 function renderInboxView(main) {
-  const midW = parseInt(lsGet('mc_mid_w', '340'), 10) || 340;
+  // 收件栏默认 220px：约 10 个字主题（主题占整行宽，220 - 卡片/行内边距/删除钮约 70px ≈ 150px ≈ 10 个汉字）；
+  // 换 key mc_mid_w2，旧的 340 存值不再用，保证新默认生效。
+  const midW = parseInt(lsGet('mc_mid_w2', '220'), 10) || 220;
   main.innerHTML =
     '<div class="panes"><div class="pane-mid" id="paneMid" style="flex-basis:' + midW + 'px;width:' + midW + 'px">'
     + '<div class="card"><h2 id="inboxTitle">收件箱</h2>'
@@ -660,7 +662,8 @@ function wireMidResizer() {
   });
   rz.addEventListener('pointermove', (e) => {
     if (!dragging) return;
-    const w = Math.max(280, Math.min(560, startW + (e.clientX - startX)));
+    // 拖动范围放宽到 160–800：能拉到很窄（约 6 个字）也能拉很宽，随意调。
+    const w = Math.max(160, Math.min(800, startW + (e.clientX - startX)));
     const pane = $('#paneMid');
     pane.style.flexBasis = w + 'px';
     pane.style.width = w + 'px';
@@ -669,7 +672,7 @@ function wireMidResizer() {
     if (!dragging) return;
     dragging = false;
     rz.classList.remove('drag');
-    lsSet('mc_mid_w', String(Math.round($('#paneMid').getBoundingClientRect().width)));
+    lsSet('mc_mid_w2', String(Math.round($('#paneMid').getBoundingClientRect().width)));
   });
 }
 
