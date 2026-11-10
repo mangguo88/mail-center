@@ -400,7 +400,15 @@ function fitSideWidth() {
     return;
   }
   let need = 200;
-  const consider = (el) => { if (!el) return; const w = el.scrollWidth + 25; if (w > need) need = w; };
+  // 邮箱行 scrollWidth 量不到右边浮着的“● 当前”那块（它浮在行内、不撑出滚动宽），
+  // 只加 25 不够，实测会差十几像素、邮箱尾巴被截掉；有这块就把它的实测宽也加上。
+  const consider = (el) => {
+    if (!el) return;
+    let w = el.scrollWidth + 25;
+    const cur = el.querySelector && el.querySelector(':scope > .cur');
+    if (cur) w += cur.offsetWidth;
+    if (w > need) need = w;
+  };
   const box = side.querySelector('details.mblist');
   if (box) {
     consider(box.querySelector(':scope > summary.mblist-h'));
