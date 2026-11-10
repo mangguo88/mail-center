@@ -289,6 +289,8 @@ async function renderApp() {
   renderSidebar();
   renderMain();
   wireSideResizer();
+  window.addEventListener('resize', fitSideWidthSoon);
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitSideWidth);
 }
 
 async function loadMailboxes() {
@@ -352,6 +354,7 @@ function renderSidebar() {
       if (det.open) { if (openArr.indexOf(g) === -1) openArr.push(g); }
       else openArr = openArr.filter((x) => x !== g);
       setOpenGroups(openArr);
+      fitSideWidthSoon();
     });
   });
   // 点邮箱行：打开它的收件箱
@@ -375,11 +378,45 @@ function renderSidebar() {
     setSidebarCollapsed(!$('#wrap').classList.contains('side-collapsed'));
   });
   wireSidebarDrag();
+  fitSideWidthSoon();
 }
 
 function setSidebarCollapsed(collapsed) {
   $('#wrap').classList.toggle('side-collapsed', collapsed);
   lsSet('mc_side_collapsed', collapsed ? '1' : '0');
+  fitSideWidthSoon();
+}
+
+// 左栏宽度跟 s00 一样：跟打开的分组走，没打开分组就是默认 200px；
+// 打开哪个分组就撑宽到能显示全那个分组的邮箱名，关掉缩回默认宽；
+// 窄屏（≤640px）最多撑到 280px，邮箱能显示全、又不会占满屏幕；
+// 不保存拖宽，下次打开重新按内容算。
+function fitSideWidth() {
+  const side = $('#side');
+  const wrap = $('#wrap');
+  if (!side || !wrap) return;
+  if (wrap.classList.contains('side-collapsed')) {
+    side.style.width = ''; side.style.minWidth = ''; side.style.maxWidth = '';
+    return;
+  }
+  let need = 200;
+  const consider = (el) => { if (!el) return; const w = el.scrollWidth + 25; if (w > need) need = w; };
+  const box = side.querySelector('details.mblist');
+  if (box) {
+    consider(box.querySelector(':scope > summary.mblist-h'));
+    box.querySelectorAll(':scope > details.gitem').forEach((g) => {
+      consider(g.querySelector(':scope > summary.gsum'));
+      if (g.open && box.open) g.querySelectorAll('a.mb[data-id]').forEach(consider);
+    });
+  }
+  const cap = window.innerWidth <= 640 ? 280 : 520;
+  if (need > cap) need = cap;
+  side.style.width = need + 'px';
+  side.style.minWidth = ''; side.style.maxWidth = '';
+}
+function fitSideWidthSoon() {
+  if (window.requestAnimationFrame) window.requestAnimationFrame(fitSideWidth);
+  else fitSideWidth();
 }
 
 function wireSideResizer() {
