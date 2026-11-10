@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v14';
+const APP_VERSION = 'v15';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -409,10 +409,10 @@ function setSidebarCollapsed(collapsed) {
   fitSideWidthSoon();
 }
 
-// 左栏宽度跟 s00 一样：跟打开的分组走，没打开分组就是默认 200px；
-// 打开哪个分组就撑宽到能显示全那个分组的邮箱名，关掉缩回默认宽；
-// 窄屏（≤640px）最多撑到 280px，邮箱能显示全、又不会占满屏幕；
-// 不保存拖宽，下次打开重新按内容算。
+// 左栏固定 240px：刚好显示全邮箱名（1641697128@qq.com + 绿圆点实测约 237px），
+// 不跟窗口/缩放走，最大也不超过 280px（拖宽上限也是 280）。
+// 之前用 scrollWidth 量内容宽，在某些浏览器/缩放下会失真、算出来偏大，
+// 侧栏就被撑宽到 520，改固定宽最稳；以后加了更长的邮箱再调这个数。
 function fitSideWidth() {
   const side = $('#side');
   const wrap = $('#wrap');
@@ -421,37 +421,10 @@ function fitSideWidth() {
     side.style.width = ''; side.style.minWidth = ''; side.style.maxWidth = '';
     return;
   }
-  // 先收窄到 200 再量：邮箱行是块级元素，内容比行窄时 scrollWidth 返回的是行宽
-  // （也就是当前侧栏宽），直接量会越量越宽——窗口一拉就跟着涨，直到顶到上限。
-  // 收窄后 scrollWidth 就是内容的真实宽度。
-  // 但实测 scrollWidth 会漏掉行尾的绿圆点（●，约 11px），只加 25（侧栏左右内边距
-  // 就占了 24）会差 1 个字母被截成省略号，圆点也被截掉看不见；所以圆点的实测宽
-  // 要单独加上，基础再多留 10px 余量，刚好够显示全名 + 圆点，不多不少。
-  side.style.width = '200px';
-  let need = 200;
-  const consider = (el) => {
-    if (!el) return;
-    let w = el.scrollWidth + 35;
-    const cur = el.querySelector && el.querySelector(':scope > .cur');
-    if (cur) w += cur.offsetWidth;
-    if (w > need) need = w;
-  };
-  const box = side.querySelector('details.mblist');
-  if (box) {
-    consider(box.querySelector(':scope > summary.mblist-h'));
-    box.querySelectorAll(':scope > details.gitem').forEach((g) => {
-      consider(g.querySelector(':scope > summary.gsum'));
-      if (g.open && box.open) g.querySelectorAll('a.mb[data-id]').forEach(consider);
-    });
-  }
-  const cap = window.innerWidth <= 640 ? 280 : 520;
-  if (need > cap) need = cap;
-  // 最大宽就钉死在内容宽（刚好显示全邮箱名）：拖宽、拉窗口都超不过它，
-  // 免得侧栏再跟着页面拉伸变宽。
-  sideFitW = need;
-  side.style.width = need + 'px';
+  sideFitW = 280;
+  side.style.width = '240px';
   side.style.minWidth = '';
-  side.style.maxWidth = need + 'px';
+  side.style.maxWidth = '280px';
 }
 function fitSideWidthSoon() {
   if (window.requestAnimationFrame) window.requestAnimationFrame(fitSideWidth);
@@ -464,7 +437,7 @@ function fitSideWidthSoon() {
 // 重定向到边线，圆钮的 click 就收不到，点圆钮没反应就是这么来的。
 // 拖宽上限是内容宽 sideFitW（刚好显示全邮箱名），拖也拖不过它。
 let edgeDragged = false;
-let sideFitW = 520;
+let sideFitW = 280;
 let _drag = null;
 function _dragMove(e) {
   if (!_drag) return;
