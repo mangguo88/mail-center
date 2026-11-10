@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v17';
+const APP_VERSION = 'v18';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -142,6 +142,11 @@ const S = {
   mbFilter: '',        // 邮箱管理页的分组筛选
 };
 const FOLDER_NAMES = { inbox: '收件箱', sent: '已发送', drafts: '草稿箱', spam: '垃圾箱', trash: '已删除' };
+
+// 界面可调配置：默认值 = 现在的左栏 240 / 收件栏 220 / 自动刷新 30000ms。
+// renderApp 开头会从 /api/status 读 CF 面板环境变量（MC_SIDEBAR_W / MC_MID_W / MC_AUTO_REFRESH_MS）
+// 来覆盖，没设就用默认值；读失败也用默认值，不影响进页面。
+const UI_CFG = { sidebarW: 240, midW: 220, autoRefreshMs: 30000 };
 const FOLDER_ORDER = ['inbox', 'sent', 'drafts', 'spam', 'trash'];
 
 function groupOf(mb) { return (mb.group_name || '').trim() || '未分组'; }
@@ -274,6 +279,15 @@ function wireAuthForm(setupMode) {
 // ---------- 主界面 ----------
 async function renderApp() {
   document.title = (S.me.display_name || 'Mail Center') + ' · Mail Center';
+  try {
+    const r = await fetch('/api/status');
+    const d = await r.json();
+    if (d && d.config) {
+      if (Number.isFinite(d.config.sidebarW) && d.config.sidebarW > 0) UI_CFG.sidebarW = d.config.sidebarW;
+      if (Number.isFinite(d.config.midW) && d.config.midW > 0) UI_CFG.midW = d.config.midW;
+      if (Number.isFinite(d.config.autoRefreshMs) && d.config.autoRefreshMs > 0) UI_CFG.autoRefreshMs = d.config.autoRefreshMs;
+    }
+  } catch (e) { /* 读不到就用默认值 */ }
   const collapsed = lsGet('mc_side_collapsed', '0') === '1';
 
   document.getElementById('app').innerHTML =
@@ -409,10 +423,11 @@ function setSidebarCollapsed(collapsed) {
   fitSideWidthSoon();
 }
 
-// 左栏固定 240px：刚好显示全邮箱名（1641697128@qq.com + 绿圆点实测约 237px），
-// 不跟窗口/缩放走，最大也不超过 280px（拖宽上限也是 280）。
+// 左栏固定宽（默认 240px：刚好显示全邮箱名 1641697128@qq.com + 绿圆点实测约 237px），
+// 不跟窗口/缩放走，最大 = 宽 + 40px（拖宽上限也是这个）。
+// 宽度可改：CF 面板加环境变量 MC_SIDEBAR_W（改完刷新页面生效）。
 // 之前用 scrollWidth 量内容宽，在某些浏览器/缩放下会失真、算出来偏大，
-// 侧栏就被撑宽到 520，改固定宽最稳；以后加了更长的邮箱再调这个数。
+// 侧栏就被撑宽到 520，改固定宽最稳。
 function fitSideWidth() {
   const side = $('#side');
   const wrap = $('#wrap');
@@ -421,10 +436,12 @@ function fitSideWidth() {
     side.style.width = ''; side.style.minWidth = ''; side.style.maxWidth = '';
     return;
   }
-  sideFitW = 280;
-  side.style.width = '240px';
+  const w = UI_CFG.sidebarW;
+  const maxW = w + 40;
+  sideFitW = maxW;
+  side.style.width = w + 'px';
   side.style.minWidth = '';
-  side.style.maxWidth = '280px';
+  side.style.maxWidth = maxW + 'px';
 }
 function fitSideWidthSoon() {
   if (window.requestAnimationFrame) window.requestAnimationFrame(fitSideWidth);
@@ -626,7 +643,8 @@ function selectMailbox(mbId) {
 function renderInboxView(main) {
   // 收件栏默认 220px：约 10 个字主题（主题占整行宽，220 - 卡片/行内边距/删除钮约 70px ≈ 150px ≈ 10 个汉字）；
   // 换 key mc_mid_w2，旧的 340 存值不再用，保证新默认生效。
-  const midW = parseInt(lsGet('mc_mid_w2', '220'), 10) || 220;
+  // 默认宽可改：CF 面板加环境变量 MC_MID_W（默认 220）；之前拖过的话以拖过的为准。
+  const midW = parseInt(lsGet('mc_mid_w2', String(UI_CFG.midW)), 10) || UI_CFG.midW;
   main.innerHTML =
     '<div class="panes"><div class="pane-mid" id="paneMid" style="flex-basis:' + midW + 'px;width:' + midW + 'px">'
     + '<div class="card"><h2 id="inboxTitle">收件箱</h2>'
@@ -726,7 +744,7 @@ function startInboxAutoRefresh() {
     if (document.hidden) return;
     if (!$('#msgList')) return;
     loadInbox(false, true);
-  }, 30000);
+  }, UI_CFG.autoRefreshMs);
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) return;
     if (!$('#msgList')) return;

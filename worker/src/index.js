@@ -21,6 +21,25 @@ import { getRaw, storeRaw, getAttachment, storeAttachment, deleteMessageStore } 
 const te = new TextEncoder();
 const td = new TextDecoder();
 const REMEMBER_DAYS = [90, 180, 365];
+
+// 可调配置：从 CF 面板环境变量读（Workers → mail-center → Settings → Variables → Add variable），
+// 没设就用下面的默认值。改面板上的值不用重新部署，刷新页面就生效（发信超时改完下次发信生效）。
+// 变量名：MC_INBOX_LIMIT（每页几封，默认 30）、MC_SMTP_TIMEOUT_MS（发信超时毫秒，默认 60000）、
+// MC_SIDEBAR_W（左栏宽 px，默认 240）、MC_MID_W（收件栏默认宽 px，默认 220）、
+// MC_AUTO_REFRESH_MS（自动刷新间隔毫秒，默认 30000）。
+function uiConfig(env) {
+  const num = (v, d) => {
+    const n = parseInt(String(v == null ? '' : v), 10);
+    return Number.isFinite(n) && n > 0 ? n : d;
+  };
+  return {
+    inboxLimit: num(env.MC_INBOX_LIMIT, 30),
+    smtpTimeoutMs: num(env.MC_SMTP_TIMEOUT_MS, 60000),
+    sidebarW: num(env.MC_SIDEBAR_W, 240),
+    midW: num(env.MC_MID_W, 220),
+    autoRefreshMs: num(env.MC_AUTO_REFRESH_MS, 30000),
+  };
+}
 const SESSION_COOKIE = 'mc_session';
 
 const PRESETS = {
@@ -199,7 +218,7 @@ export default {
 
     // 健康检查（原来 GET / 的状态 JSON 搬到这里）。
     if (path === '/api/status' && method === 'GET') {
-      return json({ ok: true, service: 'mail-center', version: 'phase2', note: 'API 见 /api/*。' });
+      return json({ ok: true, service: 'mail-center', version: 'phase2', note: 'API 见 /api/*。', config: uiConfig(env) });
     }
 
     // 非 API 请求走静态资源（SPA 首页、app.js、styles.css）。
@@ -532,7 +551,7 @@ function sameInboxList(a, b) {
         const opened = await client.openFolder(folderLabel, map);
         if (!opened.ok) return done(err(`打不开文件夹：${opened.err || '服务器没有这个文件夹。'}`));
         const allUids = await client.uids();
-        const latest = allUids.slice(-30).reverse();
+        const latest = allUids.slice(-uiConfig(env).inboxLimit).reverse();
         const list = sortNewestFirst(await client.fetchList(latest));
         // 旧底本：用来比对有没有新信，也用来沿用每封信的接收时间（只读一次，check 模式复用）。
         const stale = await cacheReadStale(env.DB, mb.id, folderLabel);
@@ -689,6 +708,7 @@ function sameInboxList(a, b) {
       const res = await smtpSend({
         host: mb.smtp_host, port: mb.smtp_port, enc: mb.smtp_enc || 'tls',
         from: fromAddr, fromName, pass, to, cc, subject, body: text, html, attachments: atts,
+        timeoutMs: uiConfig(env).smtpTimeoutMs,
       });
       if (!res.ok) return done(err(res.err));
       // 尽力把副本存进已发送（失败不影响“已发出”的结果）。

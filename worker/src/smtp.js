@@ -165,9 +165,11 @@ function withTimeout(promise, ms, msg) {
 export async function smtpSend(opts) {
   // prog.step 记录当前卡在哪一步，超时报错时带上，方便定位是连不上、认证失败还是 DATA 之后没回音
   const prog = { step: '开始连接' };
+  const timeoutMs = (opts && Number.isFinite(opts.timeoutMs) && opts.timeoutMs > 0) ? opts.timeoutMs : 60000;
+  const timeoutSec = Math.round(timeoutMs / 1000);
   return Promise.race([
     smtpSendInner(opts, prog),
-    new Promise((resolve) => setTimeout(() => resolve({ ok: false, err: '发送超时：60 秒内服务器没有回音（卡在' + prog.step + '），请检查网络后重试。' }), 60000)),
+    new Promise((resolve) => setTimeout(() => resolve({ ok: false, err: '发送超时：' + timeoutSec + ' 秒内服务器没有回音（卡在' + prog.step + '），请检查网络后重试。' }), timeoutMs)),
   ]);
 }
 
