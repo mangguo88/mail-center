@@ -268,13 +268,12 @@ function wireAuthForm(setupMode) {
 async function renderApp() {
   document.title = (S.me.display_name || 'Mail Center') + ' · Mail Center';
   const collapsed = lsGet('mc_side_collapsed', '0') === '1';
-  const sideW = parseInt(lsGet('mc_side_w', '0'), 10) || 0;
-  const sideStyle = (sideW && window.innerWidth > 640) ? ' style="width:' + sideW + 'px;min-width:200px;max-width:520px"' : '';
+
   document.getElementById('app').innerHTML =
     '<div class="top"><div class="logo">✉</div><h1>' + esc(S.me.display_name || 'Mail Center') + '</h1>'
     + '<span class="who"><span>' + esc(S.me.username || '') + '</span><button class="btn ghost sm" id="logoutBtn">退出</button></span></div>'
     + '<div class="wrap' + (collapsed ? ' side-collapsed' : '') + '" id="wrap">'
-    + '<div class="side" id="side"' + sideStyle + '></div>'
+    + '<div class="side" id="side"></div>'
     + '<div class="main" id="main"></div>'
     + '</div>';
   $('#logoutBtn').addEventListener('click', async () => {
@@ -290,8 +289,6 @@ async function renderApp() {
   renderSidebar();
   renderMain();
   wireSideResizer();
-  window.addEventListener('resize', fitSideWidthSoon);
-  if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitSideWidth);
 }
 
 async function loadMailboxes() {
@@ -355,7 +352,6 @@ function renderSidebar() {
       if (det.open) { if (openArr.indexOf(g) === -1) openArr.push(g); }
       else openArr = openArr.filter((x) => x !== g);
       setOpenGroups(openArr);
-      fitSideWidthSoon();
     });
   });
   // 点邮箱行：打开它的收件箱
@@ -379,50 +375,11 @@ function renderSidebar() {
     setSidebarCollapsed(!$('#wrap').classList.contains('side-collapsed'));
   });
   wireSidebarDrag();
-  fitSideWidthSoon();
 }
 
 function setSidebarCollapsed(collapsed) {
   $('#wrap').classList.toggle('side-collapsed', collapsed);
   lsSet('mc_side_collapsed', collapsed ? '1' : '0');
-  fitSideWidthSoon();
-}
-
-// 左栏宽度跟 s00 一样：跟打开的分组走，没打开分组就是默认 200px；
-// 打开哪个分组就撑宽到能显示全那个分组的邮箱名，关掉缩回默认宽；
-// 窄屏（≤640px）不撑宽，固定 200px，邮箱名长了截断显示省略号；
-// 手动拖过宽的（mc_side_w）只在桌面沿用，窄屏一律不理。
-function fitSideWidth() {
-  const side = $('#side');
-  const wrap = $('#wrap');
-  if (!side || !wrap) return;
-  if (wrap.classList.contains('side-collapsed') || window.innerWidth <= 640) {
-    side.style.width = ''; side.style.minWidth = ''; side.style.maxWidth = '';
-    return;
-  }
-  const saved = parseInt(lsGet('mc_side_w', '0'), 10) || 0;
-  if (saved) {
-    side.style.width = Math.max(200, Math.min(520, saved)) + 'px';
-    side.style.minWidth = '200px'; side.style.maxWidth = '520px';
-    return;
-  }
-  let need = 200;
-  const consider = (el) => { if (!el) return; const w = el.scrollWidth + 25; if (w > need) need = w; };
-  const box = side.querySelector('details.mblist');
-  if (box) {
-    consider(box.querySelector(':scope > summary.mblist-h'));
-    box.querySelectorAll(':scope > details.gitem').forEach((g) => {
-      consider(g.querySelector(':scope > summary.gsum'));
-      if (g.open && box.open) g.querySelectorAll('a.mb[data-id]').forEach(consider);
-    });
-  }
-  if (need > 520) need = 520;
-  side.style.width = need + 'px';
-  side.style.minWidth = ''; side.style.maxWidth = '';
-}
-function fitSideWidthSoon() {
-  if (window.requestAnimationFrame) window.requestAnimationFrame(fitSideWidth);
-  else fitSideWidth();
 }
 
 function wireSideResizer() {
@@ -449,7 +406,6 @@ function wireSideResizer() {
   edge.addEventListener('pointerup', () => {
     if (!dragging) return;
     dragging = false;
-    lsSet('mc_side_w', String(Math.round($('#side').getBoundingClientRect().width)));
   });
 }
 
