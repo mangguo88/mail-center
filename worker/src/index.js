@@ -9,7 +9,7 @@ import {
 import {
   getSite, saveSite, listMailboxes, getMailbox, saveMailbox, deleteMailbox,
   listGroups, saveGroup, deleteGroup, renameGroup, countGroupMailboxes, groupDbName,
-  cacheRead, cacheWrite, cacheClearMailbox, bumpCacheVersion,
+  cacheRead, cacheReadStale, cacheWrite, cacheClearMailbox, bumpCacheVersion,
   sessionIssue, sessionGet, sessionTouch, sessionRevoke, sessionRevokeOthers,
 } from './db.js';
 import { connectMailbox } from './imap.js';
@@ -493,15 +493,25 @@ function sortNewestFirst(list) {
   return list;
 }
 
+// 两份收件箱列表是不是同一批信（uid + 已读状态都一样就算没变，主题正文不会变）
+function sameInboxList(a, b) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].uid !== b[i].uid || !!a[i].seen !== !!b[i].seen) return false;
+  }
+  return true;
+}
+
     // ---------- 收件箱列表（带 1 分钟缓存） ----------
     if (path === '/api/inbox' && method === 'GET') {
       const mb = await getMailbox(env.DB, url.searchParams.get('mb') || '');
       if (!mb) return err('找不到这个邮箱。', 404);
       const folderLabel = url.searchParams.get('folder') || 'inbox';
       const refresh = url.searchParams.get('refresh') === '1';
+      const check = url.searchParams.get('check') === '1';
       const ttl = site.cache_ttl ?? 1;
       const version = mb.cache_version || 0;
-      if (!refresh) {
+      if (!refresh && !check) {
         // KV 快路径（边缘读）；没配 KV 或没命中再走 D1 缓存
         const kvData = await kvCacheGet(env, mb.id, folderLabel, version);
         if (kvData) { sortNewestFirst(kvData.list); return done(json({ ok: true, ...kvData, cached: true, store: 'kv' })); }
@@ -523,6 +533,19 @@ function sortNewestFirst(list) {
         const latest = allUids.slice(-30).reverse();
         const list = sortNewestFirst(await client.fetchList(latest));
         const payload = { list, total: opened.exists, folders: map, cached_at: new Date().toISOString() };
+        if (check) {
+          // 自动轮询：只在列表真的变了（新信/删信/已读状态变了）时才写 KV。
+          // KV 写每天只有 1000 次，每分钟写一次半天就烧完了；没变时只刷新 D1 里的时间戳，
+          // 下次打开页面直接读缓存，快，也不占 KV 额度。
+          const stale = await cacheReadStale(env.DB, mb.id, folderLabel);
+          const staleList = stale && Array.isArray(stale.list) ? sortNewestFirst(stale.list.slice()) : null;
+          const changed = !stale || stale.total !== payload.total || !sameInboxList(staleList, payload.list);
+          await cacheWrite(env.DB, mb.id, folderLabel, payload);
+          if (changed) await kvCachePut(env, mb.id, folderLabel, version, payload, ttl);
+          const next = { ...mb, status: 'ok' };
+          await saveMailbox(env.DB, next);
+          return done(json({ ok: true, ...payload, cached: false, store: 'imap', changed }));
+        }
         await cacheWrite(env.DB, mb.id, folderLabel, payload);
         await kvCachePut(env, mb.id, folderLabel, version, payload, ttl);
         const next = { ...mb, status: 'ok' };

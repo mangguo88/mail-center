@@ -288,6 +288,7 @@ async function renderApp() {
   try { await loadGroups(); } catch (e) { S.groups = []; } // 分组表没建好也不影响主界面
   renderSidebar();
   renderMain();
+  startInboxAutoRefresh();
   window.addEventListener('resize', fitSideWidthSoon);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitSideWidth);
 }
@@ -662,29 +663,65 @@ function wireMidResizer() {
   });
 }
 
-async function loadInbox(refresh) {
+async function loadInbox(refresh, isAuto) {
   const mb = curMailbox();
   if (!mb || S.listLoading) return;
   S.listLoading = true;
   const listEl = $('#msgList');
   if (listEl && refresh) listEl.innerHTML = '<p class="muted"><span class="spin"></span> 正在取最新…</p>';
   try {
-    const d = await api('/api/inbox?mb=' + encodeURIComponent(mb.id) + '&folder=' + encodeURIComponent(S.curFolder) + (refresh ? '&refresh=1' : ''));
+    const d = await api('/api/inbox?mb=' + encodeURIComponent(mb.id) + '&folder=' + encodeURIComponent(S.curFolder) + (refresh ? '&refresh=1' : (isAuto ? '&check=1' : '')));
     if (!d.ok) throw new Error(d.err || '取收件箱失败。');
+    // 自动轮询：没变就什么都不动（不重画列表、不闪提示、不丢滚动位置）
+    if (isAuto && d.changed === false) return;
+    const prevUids = new Set((S.list || []).map((m) => m.uid));
+    const scrollTop = listEl ? listEl.scrollTop : 0;
     S.list = d.list || [];
     S.folderMap = d.folders || {};
     S.listMeta = { total: d.total || 0, cached_at: d.cached_at || '', cached: !!d.cached, store: d.store || '' };
     S.unread[mb.id] = S.list.filter((m) => !m.seen).length;
     renderInboxList();
     renderSidebarDots();
+    if (listEl) listEl.scrollTop = scrollTop;
+    // 自动轮询发现了新到的未读信：提示一声
+    if (isAuto) {
+      const fresh = S.list.filter((m) => !m.seen && !prevUids.has(m.uid));
+      if (fresh.length) toast('收到 ' + fresh.length + ' 封新邮件');
+    }
   } catch (err) {
-    if (listEl) listEl.innerHTML = '<div class="flash err">' + esc(err.message || '取收件箱失败。') + '</div>';
+    // 自动轮询失败不打扰（下一轮再试）；手动刷新才报出来
+    if (!isAuto && listEl) listEl.innerHTML = '<div class="flash err">' + esc(err.message || '取收件箱失败。') + '</div>';
   } finally {
     S.listLoading = false;
   }
 }
 
+// ---------- 收件箱自动刷新：每 60 秒悄悄问一次有没有新邮件 ----------
+// 只在收件箱页面、标签页可见时跑；切到邮箱管理/设置页、或标签页藏起来时不跑，省额度。
+// 新邮件到了自动出现在列表里，不用再点 ↻ 刷新，也不用整页刷新。
+let inboxTimer = null;
+function startInboxAutoRefresh() {
+  if (inboxTimer) return;
+  inboxTimer = setInterval(() => {
+    if (document.hidden) return;
+    if (!$('#msgList')) return;
+    loadInbox(false, true);
+  }, 60000);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) return;
+    if (!$('#msgList')) return;
+    loadInbox(false, true);
+  });
+}
+
+function updateTitleUnread() {
+  const n = Object.values(S.unread || {}).reduce((a, b) => a + (b || 0), 0);
+  const base = (S.me && S.me.display_name) || 'Mail Center';
+  document.title = (n ? '(' + n + ') ' : '') + base + ' · Mail Center';
+}
+
 function renderSidebarDots() {
+  updateTitleUnread();
   // 只更新左栏未读圆点，不整个重画（避免拖动状态丢失）
   $$('#side a.mb').forEach((a) => {
     const id = a.getAttribute('data-id');

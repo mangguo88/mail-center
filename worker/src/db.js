@@ -99,6 +99,17 @@ export async function cacheRead(db, mbId, folder, ttlMinutes) {
   }
 }
 
+export async function cacheReadStale(db, mbId, folder) {
+  // 不管过期与否都把旧底本读出来，只用来跟 IMAP 新取的列表比对（比对用，不直接当缓存回）
+  const row = await db.prepare('SELECT * FROM cache WHERE id = ?1').bind(cacheId(mbId, folder)).first();
+  if (!row) return null;
+  try {
+    return JSON.parse(row.data);
+  } catch {
+    return null;
+  }
+}
+
 export async function cacheWrite(db, mbId, folder, data) {
   await db.prepare(
     `INSERT INTO cache (id, mailbox_id, folder, data, updated_at) VALUES (?1, ?2, ?3, ?4, ?5)
