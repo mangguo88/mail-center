@@ -25,7 +25,8 @@ a{color:#15803d;text-decoration:none}
 .side .ico svg{vertical-align:-3px}
 .side a.on{background:#f0fdf4;color:#15803d;font-weight:600}
 .side a:hover{background:#fafaf9}
-.side a.compose-btn{background:#16a34a;color:#fff;font-weight:700;text-align:center;margin:0 auto 10px;width:150px;padding:8px 0;border-radius:8px;cursor:pointer}
+.side a.compose-btn{background:#16a34a;color:#fff;font-weight:700;text-align:center;margin:0 auto 10px;width:150px;padding:8px 0;border-radius:8px;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px}
+.side a.compose-btn svg{flex:none}
 .side-edge{position:absolute;top:0;bottom:0;right:0;width:12px;cursor:pointer;z-index:2;background:transparent}
 .side-edge::after{content:'';position:absolute;top:0;bottom:0;right:0;width:2px;background:transparent}
 .side-edge:hover::after{background:#4ade80}

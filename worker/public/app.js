@@ -288,7 +288,6 @@ async function renderApp() {
   try { await loadGroups(); } catch (e) { S.groups = []; } // 分组表没建好也不影响主界面
   renderSidebar();
   renderMain();
-  wireSideResizer();
   window.addEventListener('resize', fitSideWidthSoon);
   if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitSideWidth);
 }
@@ -309,7 +308,7 @@ function renderSidebar() {
   const side = $('#side');
   const { order, map } = groupsOf(S.mailboxes);
   const open = openGroups();
-  let h = '<a class="compose-btn" id="composeBtn">＋ 写信</a>';
+  let h = '<a class="compose-btn" id="composeBtn" title="写信"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg> <span class="lbl">写信</span></a>';
   h += '<details class="mblist" open><summary class="mblist-h"><span><span class="ico ico-blue"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M22 6l-10 7L2 6"/></svg></span> 我的邮箱</span><span class="fold">▾</span></summary>';
   if (!S.mailboxes.length) {
     h += '<p class="muted" style="padding:4px 12px">还没有邮箱，去「邮箱管理」里点「＋ 添加邮箱」加第一个吧。建议先加 QQ（用授权码）。</p>';
@@ -377,7 +376,20 @@ function renderSidebar() {
     e.stopPropagation();
     setSidebarCollapsed(!$('#wrap').classList.contains('side-collapsed'));
   });
+  // 折叠圆钮跟鼠标走：鼠标移到边线哪儿，圆钮就出现在哪儿
+  $('#sideEdge').addEventListener('pointermove', (e) => {
+    const btn = $('#edgeBtn');
+    const side = $('#side');
+    if (!btn || !side) return;
+    const rect = side.getBoundingClientRect();
+    let y = e.clientY - rect.top;
+    const half = 12;
+    if (y < half) y = half;
+    if (y > rect.height - half) y = rect.height - half;
+    btn.style.top = y + 'px';
+  });
   wireSidebarDrag();
+  wireSideResizer();
   fitSideWidthSoon();
 }
 
