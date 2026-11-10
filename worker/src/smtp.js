@@ -151,16 +151,25 @@ class SmtpReader {
   }
 }
 
-function withTimeout(promise, ms) {
+function withTimeout(promise, ms, msg) {
   return Promise.race([
     promise,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms)),
+    new Promise((_, reject) => setTimeout(() => reject(new Error(msg || 'timeout')), ms)),
   ]);
 }
 
 // 发一封邮件。返回 {ok, err}，错误中文、不带凭据。
 // opts 可带 html（富文本正文）与 attachments（[{ filename, ctype, bytes }]）。
-export async function smtpSend({ host, port, enc = 'tls', from, fromName = '', pass, to, cc = [], subject, body, html = '', attachments = [] }) {
+// 发一封邮件（整体限时 60 秒）。QQ 正常 2~10 秒就能发完，超过 60 秒就是卡住了，
+// 直接报超时，别让页面一直转圈（之前实测卡了 3 分半钟没反应，也没报错）。
+export async function smtpSend(opts) {
+  return Promise.race([
+    smtpSendInner(opts),
+    new Promise((resolve) => setTimeout(() => resolve({ ok: false, err: '发送超时：60 秒内服务器没有回音，请检查网络后重试。' }), 60000)),
+  ]);
+}
+
+async function smtpSendInner({ host, port, enc = 'tls', from, fromName = '', pass, to, cc = [], subject, body, html = '', attachments = [] }) {
   const toList = [...new Set([...to, ...cc].map((x) => (x || '').trim()).filter(Boolean))];
   const toOnly = [...new Set(to.map((x) => (x || '').trim()).filter(Boolean))];
   if (!host || !port || !from || !pass || toOnly.length === 0) {
@@ -190,7 +199,7 @@ export async function smtpSend({ host, port, enc = 'tls', from, fromName = '', p
     return out;
   };
   const sendCmd = async (cmd, expect) => {
-    await writer.write(te.encode(cmd + '\r\n'));
+    await withTimeout(writer.write(te.encode(cmd + '\r\n')), 20000, '写超时');
     const reply = await readReply();
     const code = reply.slice(0, 3);
     return { ok: expect.includes(code), reply, code };
