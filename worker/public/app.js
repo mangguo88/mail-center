@@ -419,13 +419,17 @@ function fitSideWidth() {
   }
   // 先收窄到 200 再量：邮箱行是块级元素，内容比行窄时 scrollWidth 返回的是行宽
   // （也就是当前侧栏宽），直接量会越量越宽——窗口一拉就跟着涨，直到顶到上限。
-  // 收窄后 scrollWidth 就是内容的真实宽度，算出来刚好够显示全名，不多不少。
-  // （圆点现在是行内元素，会计入 scrollWidth，不用再单独加宽。）
+  // 收窄后 scrollWidth 就是内容的真实宽度。
+  // 但实测 scrollWidth 会漏掉行尾的绿圆点（●，约 11px），只加 25（侧栏左右内边距
+  // 就占了 24）会差 1 个字母被截成省略号，圆点也被截掉看不见；所以圆点的实测宽
+  // 要单独加上，基础再多留 10px 余量，刚好够显示全名 + 圆点，不多不少。
   side.style.width = '200px';
   let need = 200;
   const consider = (el) => {
     if (!el) return;
-    const w = el.scrollWidth + 25;
+    let w = el.scrollWidth + 35;
+    const cur = el.querySelector && el.querySelector(':scope > .cur');
+    if (cur) w += cur.offsetWidth;
     if (w > need) need = w;
   };
   const box = side.querySelector('details.mblist');
