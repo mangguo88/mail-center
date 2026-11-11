@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v31';
+const APP_VERSION = 'v32';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -148,6 +148,34 @@ const FOLDER_NAMES = { inbox: '收件箱', sent: '已发送', drafts: '草稿箱
 // renderApp 开头会从 /api/status 读 CF 面板环境变量（MC_SIDEBAR_W / MC_MID_W / MC_AUTO_REFRESH_MS）
 // 来覆盖，没设就用默认值；读失败也用默认值，不影响进页面。
 const UI_CFG = { sidebarW: 240, midW: 220, autoRefreshMs: 30000 };
+
+// ---------- 面板主题（调色）：主色存在 D1 settings.theme_accent，空 = 默认绿 ----------
+// 浅色底/描边/深色字都由主色现算，换什么色都协调；localStorage 只做本机快速套用，服务器为准。
+const THEME_DEFAULT = '#16a34a';
+const THEME_PRESETS = [
+  { name: '默认绿', hex: '#16a34a' },
+  { name: '墨蓝', hex: '#2563eb' },
+  { name: '紫罗兰', hex: '#7c3aed' },
+  { name: '玫红', hex: '#db2777' },
+  { name: '暖橙', hex: '#ea580c' },
+  { name: '湖青', hex: '#0891b2' },
+];
+function themeMix(hex, white, t) {
+  const n = parseInt(hex.slice(1), 16);
+  const c = [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+  const o = white ? [255, 255, 255] : [0, 0, 0];
+  return 'rgb(' + c.map((v, i) => Math.round(v * t + o[i] * (1 - t))).join(',') + ')';
+}
+function applyTheme(hex) {
+  const base = /^#[0-9a-fA-F]{6}$/.test(hex || '') ? hex.toLowerCase() : THEME_DEFAULT;
+  const r = document.documentElement.style;
+  r.setProperty('--accent', base);
+  r.setProperty('--accent-soft', themeMix(base, true, 0.14));
+  r.setProperty('--accent-border', themeMix(base, true, 0.3));
+  r.setProperty('--accent-dark', themeMix(base, false, 0.6));
+  r.setProperty('--accent-pale', themeMix(base, true, 0.06));
+  try { localStorage.setItem('mc_theme', base); } catch (e) { /* ignore */ }
+}
 const FOLDER_ORDER = ['inbox', 'spam', 'drafts', 'sent', 'trash'];
 
 function groupOf(mb) { return (mb.group_name || '').trim() || '未分组'; }
@@ -204,6 +232,7 @@ function goLogin() {
   renderLogin();
 }
 async function boot() {
+  try { const t = localStorage.getItem('mc_theme'); if (t) applyTheme(t); } catch (e) { /* ignore */ }
   let res;
   try {
     res = await fetch('/api/me', { credentials: 'same-origin' });
@@ -323,6 +352,7 @@ async function renderApp() {
   }
   try { await loadGroups(); } catch (e) { S.groups = []; } // 分组表没建好也不影响主界面
   try { await loadProviders(); } catch (e) { S.providers = []; } // 厂商预设表没建好也不影响主界面
+  try { const st = await apiOk('/api/settings'); if (st.theme_accent) applyTheme(st.theme_accent); } catch (e) { /* ignore */ } // 服务器存的主题为准
   renderSidebar();
   renderMain();
   startInboxAutoRefresh();
@@ -378,7 +408,7 @@ function renderSidebar() {
   h += '</details>';
   h += '<a class="mb-ico" id="mbIco" title="我的邮箱：点一下展开侧栏选邮箱"><span class="ico ico-blue"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M22 6l-10 7L2 6"/></svg></span></a>';
   h += '<a href="#" data-nav="mailboxes" class="' + (S.view === 'mailboxes' ? 'on' : '') + '"><span class="ico"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12l2 2 4-4"/></svg></span> <span class="lbl">邮箱管理</span></a>';
-  h += '<a href="#" data-nav="add-mailbox" class="' + (S.view === 'add-mailbox' ? 'on' : '') + '" title="单独的添加邮箱页"><span class="ico" style="color:#16a34a;font-weight:bold">＋</span> <span class="lbl">添加邮箱</span></a>';
+  h += '<a href="#" data-nav="add-mailbox" class="' + (S.view === 'add-mailbox' ? 'on' : '') + '" title="单独的添加邮箱页"><span class="ico" style="color:var(--accent);font-weight:bold">＋</span> <span class="lbl">添加邮箱</span></a>';
   h += '<a href="#" data-nav="settings" class="' + (S.view === 'settings' ? 'on' : '') + '"><span class="ico ico-violet"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 0 2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span> <span class="lbl">设置</span></a>';
   h += '<div style="margin-top:24px;padding:12px;border-top:1px solid #f5f5f4" class="muted">收信、读信、回信、转发、写信都在本站完成，不用跳去别处。</div><div class="muted" style="padding:0 12px 4px;font-size:11px">版本 ' + APP_VERSION + '</div>';
   h += '<div class="side-edge" id="sideEdge" title="拖动调整侧栏宽度，点圆钮折叠 / 展开"><button class="edge-btn" id="edgeBtn" title="折叠 / 展开侧栏">‹</button></div>';
@@ -1353,7 +1383,7 @@ function mbFormHtml(order, isEdit) {
     + '<div id="mb_newgroup_wrap" style="display:none"><input type="text" id="mb_newgroup" placeholder="新分组名"></div></div>'
     + '<label>登录方式（二选一）</label>'
     + '<div style="display:flex;gap:10px;flex-wrap:wrap">'
-    + '<label data-method="authcode" style="flex:1;min-width:220px;border:1px solid #16a34a;background:#f0fdf4;border-radius:8px;padding:10px 12px;cursor:pointer;display:block"><input type="radio" name="mb_method" value="authcode" checked> <b>授权码登入（推荐）</b><br><small class="muted">QQ 只有这一种能用；Gmail / Outlook 开了两步验证后也要用它。去邮箱官网生成授权码 / 应用专用密码。</small></label>'
+    + '<label data-method="authcode" style="flex:1;min-width:220px;border:1px solid var(--accent);background:var(--accent-pale);border-radius:8px;padding:10px 12px;cursor:pointer;display:block"><input type="radio" name="mb_method" value="authcode" checked> <b>授权码登入（推荐）</b><br><small class="muted">QQ 只有这一种能用；Gmail / Outlook 开了两步验证后也要用它。去邮箱官网生成授权码 / 应用专用密码。</small></label>'
     + '<label data-method="password" style="flex:1;min-width:220px;border:1px solid #e7e5e4;border-radius:8px;padding:10px 12px;cursor:pointer;display:block"><input type="radio" name="mb_method" value="password"> <b>密码登入</b><br><small class="muted">平时登录邮箱的密码。QQ / Gmail / Outlook 开了两步验证后，服务器通常会拒收，报认证失败。</small></label>'
     + '</div>'
     + '<label>密码 / 授权码 <span class="kv-note" id="mb_pass_hint">QQ 填授权码，Gmail 填应用专用密码</span></label>'
@@ -1480,8 +1510,8 @@ function wireMbForm() {
     const m = (document.querySelector('input[name="mb_method"]:checked') || {}).value || 'authcode';
     $$('#mbForm [data-method]').forEach((lb) => {
       const on = lb.getAttribute('data-method') === m;
-      lb.style.borderColor = on ? '#16a34a' : '#e7e5e4';
-      lb.style.background = on ? '#f0fdf4' : '';
+      lb.style.borderColor = on ? 'var(--accent)' : '#e7e5e4';
+      lb.style.background = on ? 'var(--accent-pale)' : '';
     });
     const hint = $('#mb_pass_hint');
     const passInput = $('#mb_pass');
@@ -1657,6 +1687,13 @@ async function renderSettingsView(main) {
     + '<p class="muted" style="margin:4px 0 10px">不认识的设备、或者换了电脑不想再记住，就点下面全部退出（当前这个浏览器不断线）。</p>'
     + '<p><button class="btn ghost" id="revokeAllBtn">退出所有记住的设备</button></p></div>'
     + '</div>'
+    + '<div class="card"><h2>面板主题</h2>'
+    + '<p class="muted">换个主色，按钮、选中态、未读圆点都会跟着变。存在服务器上，换设备也一样。</p>'
+    + '<div id="themeSwatches" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:12px 0">'
+    + THEME_PRESETS.map((t) => '<button type="button" class="theme-sw' + (((st.theme_accent || THEME_DEFAULT) === t.hex) ? ' on' : '') + '" data-hex="' + t.hex + '" title="' + t.name + '" style="background:' + t.hex + '"></button>').join('')
+    + '<label style="display:flex;align-items:center;gap:6px;margin:0;cursor:pointer;font-size:13px;color:#57534e"><input type="color" id="themeCustom" value="' + (st.theme_accent || THEME_DEFAULT) + '" style="width:36px;height:36px;padding:0;border:none;background:none;cursor:pointer">自定义颜色</label>'
+    + '</div>'
+    + '<p><button class="btn ghost" id="themeResetBtn" type="button">恢复默认绿色</button></p></div>'
     + '<div class="card"><h2>消息推送</h2>'
     + '<p class="muted">新邮件到了就往你的 Telegram 推一条：邮箱、时间（北京时间）、发件人、标题、正文前 120 字，再加一条“点开看全文”的链接。只查收件箱、只查连接正常的邮箱；第一次开只记基线、不推旧邮件。</p>'
     + '<p class="muted">状态：' + (tgOn ? '已开启' : '未开启') + ' · 方式：' + (tgDirect ? '直连 Bot' : '未配置') + '</p>'
@@ -1669,10 +1706,7 @@ async function renderSettingsView(main) {
     + '<p class="muted">上次运行：' + esc(st.tg_last_run || '还没跑过') + '</p>'
     + '<p><button class="btn ghost" id="tgTestBtn" type="button">发一条测试通知</button> <button class="btn ghost" id="tgCheckBtn" type="button">立即查一轮</button></p>'
     + '<p class="muted">立即查一轮：第一次跑只记基线、不推旧邮件；之后有新邮件才推，每轮每邮箱最多 5 封。</p>'
-    + (st.tg_key ? '<label>外部定时任务地址（备用，CF 定时是主路）</label><input type="text" readonly value="' + esc(location.origin + '/api/tgcheck?key=' + st.tg_key) + '" onclick="this.select()" style="font-size:13px" title="点一下全选，复制去定时任务里填"><p class="muted">CF 的 Cron Trigger 每 5 分钟自动跑，不用再设；这个地址是给外部定时任务（比如 cron-job.org、Serv00 Cron）用的，每 5 分钟调一次就行，不用登录。key 别发给别人。</p>' : '<p class="muted">触发：CF 的 Cron Trigger 每 5 分钟自动跑（已写进部署配置）；打开 TG 开关保存后，这里会出现一条外部定时任务地址（备用）。</p>')
-    + '</div>'
-    + '<div class="card"><h2>邮箱管理</h2><p class="muted">添加、编辑、测试连接、删除邮箱都在邮箱管理里。</p>'
-    + '<p><button class="btn ghost" id="goMbBtn">去邮箱管理</button></p></div>';
+    + '</div>';
   $('#setNameForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     try {
@@ -1760,5 +1794,33 @@ async function renderSettingsView(main) {
       renderSettingsView(main);
     } catch (err) { toast(err.message || '查失败。'); tgCheckBtn.disabled = false; tgCheckBtn.textContent = '立即查一轮'; }
   });
-  $('#goMbBtn').addEventListener('click', () => { S.view = 'mailboxes'; renderSidebar(); renderMain(); });
+  // 面板主题：点色块立刻换色并保存；自定义颜色边调边预览，松开再保存。
+  const markThemeSw = (hex) => {
+    $$('#themeSwatches .theme-sw').forEach((b) => b.classList.toggle('on', b.getAttribute('data-hex') === hex));
+  };
+  const saveTheme = async (hex) => {
+    try {
+      await postJsonOk('/api/settings', { theme_accent: hex });
+      toast(hex ? '主题已保存。' : '已恢复默认绿色。');
+    } catch (err) { toast(err.message || '保存失败。'); }
+  };
+  $$('#themeSwatches .theme-sw').forEach((b) => b.addEventListener('click', async () => {
+    const hex = b.getAttribute('data-hex');
+    applyTheme(hex);
+    markThemeSw(hex);
+    const c = $('#themeCustom'); if (c) c.value = hex;
+    await saveTheme(hex);
+  }));
+  const themeCustom = $('#themeCustom');
+  if (themeCustom) {
+    themeCustom.addEventListener('input', () => { applyTheme(themeCustom.value); markThemeSw(themeCustom.value); });
+    themeCustom.addEventListener('change', async () => { await saveTheme(themeCustom.value); });
+  }
+  const themeResetBtn = $('#themeResetBtn');
+  if (themeResetBtn) themeResetBtn.addEventListener('click', async () => {
+    applyTheme(THEME_DEFAULT);
+    markThemeSw(THEME_DEFAULT);
+    const c = $('#themeCustom'); if (c) c.value = THEME_DEFAULT;
+    await saveTheme('');
+  });
 }

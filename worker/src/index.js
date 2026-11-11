@@ -448,6 +448,7 @@ export default {
         // 只回“设没设”，不回值（MC_ADMIN_PASS 的值绝不能出这个接口）。
         cf_login: { user_set: !!cfg.adminUser, pass_set: !!cfLoginPass(env) },
         tg_last_run: stg.tg_last_run || '',
+        theme_accent: stg.theme_accent || '',
         tg_key: site.tg_key || '',
       }));
     }
@@ -471,6 +472,11 @@ export default {
       const st = tuneInt(body.smtp_timeout_ms, 10000, 120000);
       if (st !== null) tune.smtp_timeout_ms = st;
       if (Object.keys(tune).length) await saveSettings(env.DB, tune);
+      // 面板主题：主色，空字符串 = 恢复默认绿。
+      if (typeof body.theme_accent === 'string') {
+        const t = body.theme_accent.trim();
+        if (t === '' || /^#[0-9a-fA-F]{6}$/.test(t)) await saveSettings(env.DB, { theme_accent: t.toLowerCase() });
+      }
       // TG 推送：开关 + chat_id + Bot Token（Token 留空或填 **** 开头 = 不改）。
       if (typeof body.tg_enabled === 'boolean') next.tg_enabled = body.tg_enabled ? 1 : 0;
       if (typeof body.tg_chat_id === 'string') next.tg_chat_id = body.tg_chat_id.trim();
