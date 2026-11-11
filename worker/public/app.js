@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v28';
+const APP_VERSION = 'v29';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -1330,7 +1330,7 @@ function mbFormHtml(order, isEdit) {
     + '<label>邮箱地址</label><input type="email" id="mb_email" placeholder="如 xxx@qq.com" autocomplete="off" required>'
     + '<label>厂商 / 域名（选了自动填服务器，也可手动改）</label><select id="mb_provider">'
     + '<option value="">按邮箱地址自动识别</option>'
-    + Object.entries(MB_PRESETS).map(([d, p]) => '<option value="' + d + '">' + esc(p.label) + '</option>').join('')
+    + [...new Map(Object.entries(MB_PRESETS).map(([d, p]) => [p.label, d]))].map(([label, d]) => '<option value="' + d + '">' + esc(label) + '</option>').join('')
     + '<option value="custom">自定义服务器</option></select>'
     + '<label>分组</label><div class="row"><div><select id="mb_group">' + order.map((g) => '<option value="' + esc(g) + '">' + esc(g) + '</option>').join('') + '<option value="__new__">新建分组…</option></select></div>'
     + '<div id="mb_newgroup_wrap" style="display:none"><input type="text" id="mb_newgroup" placeholder="新分组名"></div></div>'
