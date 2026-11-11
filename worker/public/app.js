@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v26';
+const APP_VERSION = 'v27';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -1323,7 +1323,7 @@ function mbFormHtml(order, isEdit) {
     + '<p class="muted">先选登录方式，再填凭据。两种方式都支持；哪个能登上，取决于邮箱厂商那边的规则，不是这个页面说了算。保存时先测连接，通了才存。授权码粘贴时带了空格会自动去掉。</p>'
     + '<div id="mbFormErr"></div>'
     + '<form id="mbForm" autocomplete="off">'
-    + '<label>邮箱地址</label><input type="email" id="mb_email" placeholder="如 xxx@qq.com" required>'
+    + '<label>邮箱地址</label><input type="email" id="mb_email" placeholder="如 xxx@qq.com" autocomplete="off" required>'
     + '<label>厂商 / 域名（选了自动填服务器，也可手动改）</label><select id="mb_provider">'
     + '<option value="">按邮箱地址自动识别</option>'
     + Object.entries(MB_PRESETS).map(([d, p]) => '<option value="' + d + '">' + esc(p.label) + '</option>').join('')
@@ -1336,7 +1336,7 @@ function mbFormHtml(order, isEdit) {
     + '<label data-method="password" style="flex:1;min-width:220px;border:1px solid #e7e5e4;border-radius:8px;padding:10px 12px;cursor:pointer;display:block"><input type="radio" name="mb_method" value="password"> <b>密码登入</b><br><small class="muted">平时登录邮箱的密码。QQ / Gmail / Outlook 开了两步验证后，服务器通常会拒收，报认证失败。</small></label>'
     + '</div>'
     + '<label>密码 / 授权码 <span class="kv-note" id="mb_pass_hint">QQ 填授权码，Gmail 填应用专用密码</span></label>'
-    + '<div style="display:flex;gap:8px;align-items:center"><input type="password" id="mb_pass" placeholder="16 位授权码 / 应用专用密码" style="flex:1" required><button type="button" class="btn ghost sm" id="mb_pass_toggle" style="white-space:nowrap">👁 显示</button></div>'
+    + '<div style="display:flex;gap:8px;align-items:center"><input type="password" id="mb_pass" placeholder="16 位授权码 / 应用专用密码" autocomplete="new-password" style="flex:1" required><button type="button" class="btn ghost sm" id="mb_pass_toggle" style="white-space:nowrap">👁 显示</button></div>'
     + '<div class="form-grid">'
     + '<div><label>IMAP 服务器</label><input type="text" id="mb_imap_host" placeholder="imap.qq.com"></div>'
     + '<div><label>IMAP 端口</label><input type="number" id="mb_imap_port" value="993"></div>'
@@ -1345,7 +1345,7 @@ function mbFormHtml(order, isEdit) {
     + '<div><label>SMTP 端口</label><input type="number" id="mb_smtp_port" value="587"></div>'
     + '<div><label>SMTP 加密</label><select id="mb_smtp_enc"><option value="tls">STARTTLS</option><option value="ssl">SSL</option></select></div>'
     + '</div>'
-    + '<label>IMAP 登录账号 <span class="kv-note">默认和邮箱地址一样；要填就填完整邮箱地址，不能只填 QQ 号（QQ 会报 Please input email address）</span></label><input type="text" id="mb_login_user" placeholder="默认和邮箱地址一样">'
+    + '<label>IMAP 登录账号 <span class="kv-note">默认和邮箱地址一样；要填就填完整邮箱地址，不能只填 QQ 号（QQ 会报 Please input email address）</span></label><input type="text" id="mb_login_user" placeholder="默认和邮箱地址一样" autocomplete="off">'
     + '<p style="margin-top:16px"><button class="btn" id="mbSaveBtn">' + (isEdit ? '保存修改' : '保存邮箱') + '</button> <button type="button" class="btn ghost" id="mbCancelBtn">' + (isEdit ? '取消编辑' : '返回邮箱管理') + '</button></p>'
     + '</form></div>';
 }
