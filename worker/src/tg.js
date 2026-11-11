@@ -106,6 +106,11 @@ function tgText(mb, row) {
 // ---------- 查一轮新邮件并推 TG（Cron / tgcheck / 立即查一轮共用） ----------
 // 只查收件箱、只查 kind=imap 且 status=ok 的邮箱；第一次跑只记基线、不推；
 // 每轮每邮箱最多推 5 封。返回 { checked, sent, notes[] }。
+//
+// 只推“基线之后新到的邮件”：基线是见过的最大 UID（高水位线），只有 UID 大于
+// 它才算新邮件——不管已读未读，旧邮件永远不推。开启 TG 开关时会清掉全部基线，
+// 下一轮只记新基线、不推开通前的旧邮件；新加的邮箱第一次跑也只记基线。
+// UID 最大值变小（邮箱重建、UIDVALIDITY 变了）时也只重记基线、不推。
 export async function tgCheckAll(env, credKey, site) {
   const checked = { n: 0 };
   let sent = 0;
@@ -129,14 +134,16 @@ export async function tgCheckAll(env, credKey, site) {
       const opened = await client.openFolder('inbox', map);
       if (!opened.ok) continue;
       const uids = await client.uids();
-      const seen = await tgSeenGet(env.DB, mb.id);
-      const first = seen.length === 0;
-      const seenSet = new Set(seen);
-      const fresh = uids.filter((u) => !seenSet.has(u));
-      // 基线先存（最新 200 个），第一次跑到这里就停，不推旧邮件。
-      const merged = [...new Set([...seen, ...uids])].sort((a, b) => a - b).slice(-200);
-      await tgSeenSet(env.DB, mb.id, merged);
-      if (first || fresh.length === 0) continue;
+      const seen = await tgSeenGet(env.DB, mb.id); // {max, uids}，旧格式数组也照读
+      const first = seen.max === 0 && seen.uids.length === 0;
+      const maxUid = uids.length ? Math.max.apply(null, uids) : 0;
+      // 正常情况下 UID 只增不减；最大值变小说明邮箱重建了，旧 UID 作废，重记基线。
+      const reset = !first && maxUid > 0 && maxUid < seen.max;
+      const fresh = (!first && !reset) ? uids.filter((u) => u > seen.max) : [];
+      // 基线先存（高水位线 + 最新 200 个 UID），第一次跑到这里就停，不推旧邮件。
+      const merged = [...new Set([...seen.uids, ...uids])].sort((a, b) => a - b).slice(-200);
+      await tgSeenSet(env.DB, mb.id, { max: Math.max(seen.max, maxUid), uids: merged });
+      if (first || reset || fresh.length === 0) continue;
       const todo = fresh.slice(-5); // 最新 5 封，UID 从旧到新推
       const rows = await client.fetchList(todo);
       for (const row of rows) {

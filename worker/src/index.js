@@ -9,7 +9,7 @@ import {
 } from './crypto.js';
 import {
   getSite, saveSite, getSettings, saveSettings, listMailboxes, getMailbox, saveMailbox, deleteMailbox,
-  listGroups, saveGroup, deleteGroup, renameGroup, countGroupMailboxes, groupDbName,
+  listGroups, saveGroup, deleteGroup, renameGroup, countGroupMailboxes, clearGroupMailboxes, groupDbName, tgSeenClearAll,
   listProviders, getProvider, saveProvider, deleteProvider,
   cacheRead, cacheReadStale, cacheWrite, cacheExpireMailbox, bumpCacheVersion,
   sessionIssue, sessionGet, sessionTouch, sessionRevoke, sessionRevokeOthers,
@@ -515,9 +515,11 @@ export default {
       }
       // TG 开关动过才处理轮询密钥：开 → 没 tg_key 就生成一把，再把当前派生密钥包一份存 D1
       // （Cron / tgcheck 靠这份包解邮箱凭据，不用登录）；关 → 删包，Cron 再也解不开。
+      // 刚从关切到开时清掉全部 TG 基线：下一轮每个邮箱只记新基线，不推开通前的旧邮件。
       const tgChanged = ('tg_enabled' in body) || ('tg_chat_id' in body) || ('tg_bot_token' in body);
       if (tgChanged) {
         if (next.tg_enabled) {
+          if (!site.tg_enabled) await tgSeenClearAll(env.DB);
           if (!next.tg_key) next.tg_key = tgNewKey();
           const wrap = await wrapTgKey(await exportCredKeyRaw(credKey), next.tg_key);
           await saveSettings(env.DB, { tg_wrap: wrap });
@@ -819,11 +821,15 @@ export default {
       const name = decodeURIComponent(path.slice('/api/groups/'.length));
       if (!name) return err('分组名不对。', 404);
       if (method === 'DELETE') {
+        // 有邮箱的分组也能删：里面的邮箱移到“未分组”，不丢邮箱。
+        // “未分组”本身不是真分组，不能删。
+        if (name === '未分组') return err('“未分组”不能删。', 400);
+        const n = await countGroupMailboxes(env.DB, name);
         const gs = await listGroups(env.DB);
-        if (!gs.some((g) => g.name === name)) return err('找不到这个分组。', 404);
-        if ((await countGroupMailboxes(env.DB, name)) > 0) return err('这个分组里还有邮箱，先把邮箱移走再删。');
+        if (!gs.some((g) => g.name === name) && n === 0) return err('找不到这个分组。', 404);
+        if (n > 0) await clearGroupMailboxes(env.DB, name);
         await deleteGroup(env.DB, name);
-        return done(json({ ok: true }));
+        return done(json({ ok: true, moved: n }));
       }
       const body = await readJson(req);
       if (body === null) return err('请求体不是合法 JSON。');

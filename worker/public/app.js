@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v33';
+const APP_VERSION = 'v34';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -1254,7 +1254,7 @@ function renderMailboxesView(main) {
       + order.map((g) => '<a class="' + (S.mbFilter === g ? 'on' : '') + '" data-gf="' + esc(g) + '">' + esc(g) + '（' + counts[g] + '）</a>').join('') + '</div>'
       + '<p class="muted">' + (S.mbFilter !== '' ? '只看"' + esc(S.mbFilter) + '"分组的邮箱，点"全部"或表格里「分组」列头的 ▾ 换分组。' : '点上面某个分组，或点表格里「分组」列头的 ▾，就只列出该分组的邮箱。') + '</p>';
     h += '<div style="border:1px solid #e7e5e4;border-radius:8px;padding:12px;margin:0 0 12px"><strong>分组管理</strong> <span class="muted">改一个分组名，这个分组里的邮箱一起跟着改，不用一个个改。</span>'
-      + order.map((g) => '<div style="display:flex;gap:8px;align-items:center;margin:8px 0 0;flex-wrap:wrap"><span style="width:180px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(g) + '（' + counts[g] + '）">' + esc(g) + '（' + counts[g] + '）</span><span class="muted">改成</span><input type="text" class="gname-input" data-group="' + esc(g) + '" value="' + esc(g) + '" style="width:130px;padding:6px 8px;border:1px solid #e7e5e4;border-radius:6px;font-size:14px"><button class="btn ghost sm" data-rename="' + esc(g) + '">改分组名</button>' + (counts[g] === 0 ? ' <button class="btn danger sm" data-delgroup="' + esc(g) + '">删除分组</button>' : '') + '</div>').join('')
+      + order.map((g) => '<div style="display:flex;gap:8px;align-items:center;margin:8px 0 0;flex-wrap:wrap"><span style="width:180px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(g) + '（' + counts[g] + '）">' + esc(g) + '（' + counts[g] + '）</span><span class="muted">改成</span><input type="text" class="gname-input" data-group="' + esc(g) + '" value="' + esc(g) + '" style="width:130px;padding:6px 8px;border:1px solid #e7e5e4;border-radius:6px;font-size:14px"><button class="btn ghost sm" data-rename="' + esc(g) + '">改分组名</button>' + (g === '未分组' ? '' : ' <button class="btn danger sm" data-delgroup="' + esc(g) + '">删除分组</button>') + '</div>').join('')
       + '<div style="display:flex;gap:8px;align-items:center;margin:8px 0 0;flex-wrap:wrap"><span style="width:180px;flex:none" class="muted">新建分组</span><span class="muted" style="visibility:hidden">改成</span><input type="text" id="newGroupInput" placeholder="新分组名" style="width:130px;padding:6px 8px;border:1px solid #e7e5e4;border-radius:6px;font-size:14px"><button class="btn ghost sm" id="newGroupBtn">新建分组</button></div>'
       + '</div>';
     h += '<div class="tablewrap"><table><tr><th>邮箱</th><th><details class="gpick"><summary title="点一下按分组筛选">分组' + (S.mbFilter !== '' ? '：' + esc(S.mbFilter) : '') + ' <span class="fold">▾</span></summary><div class="gmenu">'
@@ -1312,14 +1312,19 @@ function renderMailboxesView(main) {
       toast('分组已加上。');
     } catch (err) { toast(err.message || '新建分组失败。'); ngBtn.disabled = false; }
   });
-  // 删除空分组
+  // 删除分组：有邮箱的也能删，里面的邮箱移到“未分组”（后端会一起办）。
   $$('#main [data-delgroup]').forEach((b) => b.addEventListener('click', async () => {
     const g = b.getAttribute('data-delgroup');
-    if (!confirm('删除分组"' + g + '"吗？这个分组里没有邮箱。')) return;
+    const n = (all.find((x) => x.name === g) || {}).count || 0;
+    if (n > 0) {
+      if (!confirm('分组"' + g + '"里还有 ' + n + ' 个邮箱，删除后这些邮箱会移到"未分组"，确定删除吗？')) return;
+    } else if (!confirm('删除分组"' + g + '"吗？这个分组里没有邮箱。')) return;
     try {
       await apiOk('/api/groups/' + encodeURIComponent(g), { method: 'DELETE' });
+      await loadMailboxes();
       await loadGroups();
       if (S.mbFilter === g) S.mbFilter = '';
+      renderSidebar();
       renderMailboxesView(main);
       toast('分组已删除。');
     } catch (err) { toast(err.message || '删除失败。'); }
@@ -1393,13 +1398,13 @@ function mbFormHtml(order, isEdit) {
     + '<div id="mbFormErr"></div>'
     + '<form id="mbForm" autocomplete="off">'
     + '<label>邮箱类型</label><span class="seg" id="mb_kind_seg"><button type="button" data-kind="imap" class="on">普通邮箱（IMAP）</button><button type="button" data-kind="henna">Henna 域名邮箱</button><button type="button" data-kind="cloudmail">Cloud Mail 域名邮箱</button></span>'
-    + '<label>邮箱地址</label><input type="email" id="mb_email" placeholder="如 xxx@qq.com" autocomplete="off" required>'
+    + '<div id="mb_email_wrap"><label>邮箱地址</label><input type="email" id="mb_email" placeholder="如 xxx@qq.com" autocomplete="off" required></div>'
     + '<div id="mb_api_sec" style="display:none">'
     + '<label>面板地址</label><input type="text" id="mb_panel_url" placeholder="https://你的域名邮箱面板地址" autocomplete="off">'
     + '<label>登录账号</label><input type="text" id="mb_panel_login" placeholder="登面板用的账号（一般是邮箱地址）" autocomplete="off">'
     + '<label>面板登录密码</label>'
     + '<div style="display:flex;gap:8px;align-items:center"><input type="password" id="mb_panel_pass" placeholder="登面板用的密码" autocomplete="new-password" style="flex:1"><button type="button" class="btn ghost sm" id="mb_panel_pass_toggle" style="white-space:nowrap">👁 显示</button></div>'
-    + '<p class="muted">域名邮箱没有 IMAP/SMTP，邮件存在面板自己的数据库里，这里走面板的 HTTP 接口收发。一条记录只管一个邮箱地址。</p>'
+    + '<p class="muted" id="mb_api_note">域名邮箱没有 IMAP/SMTP，邮件存在面板自己的数据库里，这里走面板的 HTTP 接口收发。一条记录只管一个邮箱地址。</p>'
     + '</div>'
     + '<div id="mb_imap_sec">'
     + '<label id="mb_provider_label">厂商 / 域名（选了自动填服务器，也可手动改）</label><div id="mb_provider_wrap"><select id="mb_provider">'
@@ -1516,6 +1521,7 @@ function mbKind() {
 
 // 邮箱类型切换：域名邮箱显示面板地址 + 登录账号 + 面板密码，藏起 IMAP 那套；
 // 普通邮箱反过来。面板地址默认填好，换类型时也跟着换（自己改过的地址不覆盖）。
+// 域名邮箱时“邮箱地址”栏移到面板登录密码下面；普通邮箱时放回类型选择下面。
 function syncKindUI(kind) {
   $$('#mb_kind_seg button').forEach((b) => b.classList.toggle('on', b.getAttribute('data-kind') === kind));
   const isApi = kind !== 'imap';
@@ -1523,6 +1529,15 @@ function syncKindUI(kind) {
   const imapSec = $('#mb_imap_sec');
   if (apiSec) apiSec.style.display = isApi ? '' : 'none';
   if (imapSec) imapSec.style.display = isApi ? 'none' : '';
+  const emWrap = $('#mb_email_wrap');
+  if (emWrap) {
+    if (isApi) {
+      const note = $('#mb_api_note');
+      if (apiSec && note && note.parentElement === apiSec) apiSec.insertBefore(emWrap, note);
+    } else if (apiSec && apiSec.parentElement) {
+      apiSec.parentElement.insertBefore(emWrap, apiSec);
+    }
+  }
   const mp = $('#mb_pass');
   const pp = $('#mb_panel_pass');
   if (isApi) {

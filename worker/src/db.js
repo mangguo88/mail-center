@@ -67,22 +67,45 @@ export async function deleteMailbox(db, id) {
 }
 
 // ---------- TG 轮询已通知 UID（每邮箱一行 JSON 数组） ----------
+// TG 已通知基线：每邮箱一行，存 {max, uids}。
+// max 是见过的最大 UID（高水位线），uids 是最新的 200 个 UID（只用来判断
+// UIDVALIDITY 是否重置）。只推 UID > max 的邮件——旧邮件哪怕未读、哪怕不在
+// uids 里，也永远不会再被当成“新邮件”推（v33 之前只存最新 200 个 UID，
+// 收件箱超过 200 封的邮箱每轮都会把 200 名开外的旧邮件当新邮件推出来，
+// 包括 2025 年的旧信）。旧格式（纯 UID 数组）照样能读：max 就取数组最大值。
 export async function tgSeenGet(db, mbId) {
   const row = await db.prepare('SELECT uids FROM tg_seen WHERE mailbox_id = ?1').bind(mbId).first();
-  if (!row) return [];
+  if (!row) return { max: 0, uids: [] };
   try {
-    const arr = JSON.parse(row.uids || '[]');
-    return Array.isArray(arr) ? arr.map((u) => parseInt(u, 10)).filter((u) => u > 0) : [];
+    const v = JSON.parse(row.uids || '[]');
+    if (Array.isArray(v)) {
+      const arr = v.map((u) => parseInt(u, 10)).filter((u) => u > 0);
+      return { max: arr.length ? Math.max.apply(null, arr) : 0, uids: arr };
+    }
+    if (v && typeof v === 'object') {
+      const arr = Array.isArray(v.uids) ? v.uids.map((u) => parseInt(u, 10)).filter((u) => u > 0) : [];
+      const m = parseInt(v.max, 10);
+      return { max: Number.isFinite(m) && m > 0 ? m : (arr.length ? Math.max.apply(null, arr) : 0), uids: arr };
+    }
+    return { max: 0, uids: [] };
   } catch {
-    return [];
+    return { max: 0, uids: [] };
   }
 }
 
-export async function tgSeenSet(db, mbId, uids) {
+export async function tgSeenSet(db, mbId, seen) {
+  const val = (seen && typeof seen === 'object' && !Array.isArray(seen))
+    ? { max: seen.max || 0, uids: Array.isArray(seen.uids) ? seen.uids : [] }
+    : { max: 0, uids: Array.isArray(seen) ? seen : [] };
   await db.prepare(
     `INSERT INTO tg_seen (mailbox_id, uids, updated_at) VALUES (?1, ?2, ?3)
      ON CONFLICT(mailbox_id) DO UPDATE SET uids=?2, updated_at=?3`,
-  ).bind(mbId, JSON.stringify(uids), Date.now()).run();
+  ).bind(mbId, JSON.stringify(val), Date.now()).run();
+}
+
+// TG 刚打开时清掉全部基线：下一轮每个邮箱都只记新基线、不推开通前的旧邮件。
+export async function tgSeenClearAll(db) {
+  await db.prepare('DELETE FROM tg_seen').run();
 }
 
 // ---------- 分组（单独建的空分组：还没加邮箱也能先建好，放这里） ----------
@@ -141,6 +164,11 @@ export async function renameGroup(db, oldName, newName) {
 export async function countGroupMailboxes(db, name) {
   const row = await db.prepare('SELECT COUNT(*) AS c FROM mailboxes WHERE group_name = ?1').bind(groupDbName(name)).first();
   return row ? row.c : 0;
+}
+
+// 删分组时把这个分组里的邮箱全部移到“未分组”（group_name 存空串）。
+export async function clearGroupMailboxes(db, name) {
+  await db.prepare('UPDATE mailboxes SET group_name = ?1 WHERE group_name = ?2').bind('', groupDbName(name)).run();
 }
 
 // ---------- 收件箱缓存（默认 1 分钟，设置页可改） ----------
