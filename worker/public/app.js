@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v25';
+const APP_VERSION = 'v26';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -342,7 +342,7 @@ function renderSidebar() {
   let h = '<a class="compose-btn" id="composeBtn" title="写信"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg> <span class="lbl">写信</span></a>';
   h += '<details class="mblist" open><summary class="mblist-h"><span><span class="ico ico-blue"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M22 6l-10 7L2 6"/></svg></span> 我的邮箱</span><span class="fold">▾</span></summary>';
   if (!S.mailboxes.length) {
-    h += '<p class="muted" style="padding:4px 12px">还没有邮箱，去「邮箱管理」里点「＋ 添加邮箱」加第一个吧。建议先加 QQ（用授权码）。</p>';
+    h += '<p class="muted" style="padding:4px 12px">还没有邮箱，点左栏「＋ 添加邮箱」加第一个吧。建议先加 QQ（用授权码）。</p>';
   }
   for (const g of order) {
     const isOpen = open.indexOf(g) !== -1;
@@ -362,7 +362,7 @@ function renderSidebar() {
   h += '</details>';
   h += '<a class="mb-ico" id="mbIco" title="我的邮箱：点一下展开侧栏选邮箱"><span class="ico ico-blue"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M22 6l-10 7L2 6"/></svg></span></a>';
   h += '<a href="#" data-nav="mailboxes" class="' + (S.view === 'mailboxes' ? 'on' : '') + '"><span class="ico"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12l2 2 4-4"/></svg></span> <span class="lbl">邮箱管理</span></a>';
-  h += '<a href="#" data-nav="add-mailbox" title="直接打开添加邮箱的表单"><span class="ico" style="color:#16a34a;font-weight:bold">＋</span> <span class="lbl">添加邮箱</span></a>';
+  h += '<a href="#" data-nav="add-mailbox" class="' + (S.view === 'add-mailbox' ? 'on' : '') + '" title="单独的添加邮箱页"><span class="ico" style="color:#16a34a;font-weight:bold">＋</span> <span class="lbl">添加邮箱</span></a>';
   h += '<a href="#" data-nav="settings" class="' + (S.view === 'settings' ? 'on' : '') + '"><span class="ico ico-violet"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 0 2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span> <span class="lbl">设置</span></a>';
   h += '<div style="margin-top:24px;padding:12px;border-top:1px solid #f5f5f4" class="muted">收信、读信、回信、转发、写信都在本站完成，不用跳去别处。</div><div class="muted" style="padding:0 12px 4px;font-size:11px">版本 ' + APP_VERSION + '</div>';
   h += '<div class="side-edge" id="sideEdge" title="拖动调整侧栏宽度，点圆钮折叠 / 展开"><button class="edge-btn" id="edgeBtn" title="折叠 / 展开侧栏">‹</button></div>';
@@ -373,7 +373,7 @@ function renderSidebar() {
   $$('#side [data-nav]').forEach((a) => a.addEventListener('click', (e) => {
     e.preventDefault();
     const nav = a.getAttribute('data-nav');
-    if (nav === 'add-mailbox') { S.view = 'mailboxes'; S.openAddMb = true; }
+    if (nav === 'add-mailbox') { S.view = 'add-mailbox'; MB_EDIT_ID = ''; }
     else S.view = nav;
     renderSidebar();
     renderMain();
@@ -518,7 +518,7 @@ function openMbMenu(mbId, email, x, y) {
   menu.style.top = Math.min(y, window.innerHeight - 160) + 'px';
   const close = () => { menu.classList.remove('open'); document.removeEventListener('click', close); };
   setTimeout(() => document.addEventListener('click', close), 0);
-  menu.querySelector('[data-act="edit"]').addEventListener('click', () => { close(); S.view = 'mailboxes'; renderSidebar(); renderMain(); setTimeout(() => openMbEditor(mbId), 50); });
+  menu.querySelector('[data-act="edit"]').addEventListener('click', () => { close(); S.view = 'add-mailbox'; renderSidebar(); renderMain(); setTimeout(() => openMbEditor(mbId), 50); });
   menu.querySelector('[data-act="compose"]').addEventListener('click', () => { close(); openCompose({ mbId }); });
   menu.querySelector('[data-act="copy"]').addEventListener('click', async () => {
     close();
@@ -635,6 +635,7 @@ async function applySidebarDrop(dragged, target, clientY, targetRect) {
 function renderMain() {
   const main = $('#main');
   if (S.view === 'mailboxes') { renderMailboxesView(main); return; }
+  if (S.view === 'add-mailbox') { renderAddMailboxView(main); return; }
   if (S.view === 'settings') { renderSettingsView(main); return; }
   renderInboxView(main);
 }
@@ -671,7 +672,7 @@ function renderInboxView(main) {
   const mb = curMailbox();
   if (!mb) {
     $('#inboxTitle').textContent = '收件箱';
-    $('#msgList').innerHTML = '<p class="muted">还没有邮箱，去「邮箱管理」里点「＋ 添加邮箱」加第一个吧。建议先加 QQ（用授权码），再加 Outlook / Gmail。</p>';
+    $('#msgList').innerHTML = '<p class="muted">还没有邮箱，点左栏「＋ 添加邮箱」加第一个吧。建议先加 QQ（用授权码），再加 Outlook / Gmail。</p>';
     return;
   }
   loadInbox(false);
@@ -1180,35 +1181,9 @@ function renderMailboxesView(main) {
   let h = '<div class="card"><h2>邮箱管理</h2>'
     + '<p class="muted">这里只管“有哪些邮箱、能不能连上”。要看信，点左栏「我的邮箱」里点一个邮箱直接打开；要写信，点左栏「写信」。</p>';
   h += '</div>';
-  // 添加邮箱单独放在下面（原来在最上面，点开后表单会把下面的分组/表格顶下去，看着像下面的设置没了）。
-  // 没邮箱时默认展开，有邮箱时默认收起，点一下展开，表单就在表格下面，不挡上面的内容。
-  const addBarHtml = '<div class="card"><details class="addbar" id="addBar"' + ((S.mailboxes.length && !S.openAddMb) ? '' : ' open') + '><summary><span style="color:#16a34a">＋</span> 添加邮箱 <span class="fold">▾</span></summary>'
-    + '<p class="muted">先选登录方式，再填凭据。QQ 用授权码，Gmail 用应用专用密码；哪个能登上，取决于邮箱厂商那边的规则。保存时先测连接，通了才存。授权码粘贴时带了空格会自动去掉。</p>'
-    + '<div id="mbFormErr"></div>'
-    + '<form id="mbForm" autocomplete="off">'
-    + '<label>邮箱地址</label><input type="email" id="mb_email" placeholder="如 xxx@qq.com" required>'
-    + '<label>厂商 / 域名（选了自动填服务器，也可手动改）</label><select id="mb_provider">'
-    + '<option value="">按邮箱地址自动识别</option>'
-    + Object.entries(MB_PRESETS).map(([d, p]) => '<option value="' + d + '">' + esc(p.label) + '</option>').join('')
-    + '<option value="custom">自定义服务器</option></select>'
-    + '<label>分组</label><div class="row"><div><select id="mb_group">' + order.map((g) => '<option value="' + esc(g) + '">' + esc(g) + '</option>').join('') + '<option value="__new__">新建分组…</option></select></div>'
-    + '<div id="mb_newgroup_wrap" style="display:none"><input type="text" id="mb_newgroup" placeholder="新分组名"></div></div>'
-    + '<label>密码 / 授权码 <span class="kv-note" id="mb_pass_hint">QQ 填授权码，Gmail 填应用专用密码</span></label>'
-    + '<div style="display:flex;gap:8px;align-items:center"><input type="password" id="mb_pass" style="flex:1" required><button type="button" class="btn ghost sm" id="mb_pass_toggle" style="white-space:nowrap">👁 显示</button></div>'
-    + '<div class="form-grid">'
-    + '<div><label>IMAP 服务器</label><input type="text" id="mb_imap_host" placeholder="imap.qq.com"></div>'
-    + '<div><label>IMAP 端口</label><input type="number" id="mb_imap_port" value="993"></div>'
-    + '<div><label>IMAP 加密</label><select id="mb_imap_enc"><option value="ssl">SSL</option><option value="tls">STARTTLS</option></select></div>'
-    + '<div><label>SMTP 服务器</label><input type="text" id="mb_smtp_host" placeholder="smtp.qq.com"></div>'
-    + '<div><label>SMTP 端口</label><input type="number" id="mb_smtp_port" value="587"></div>'
-    + '<div><label>SMTP 加密</label><select id="mb_smtp_enc"><option value="tls">STARTTLS</option><option value="ssl">SSL</option></select></div>'
-    + '</div>'
-    + '<label>IMAP 登录账号（默认和邮箱地址一样）</label><input type="text" id="mb_login_user" placeholder="默认和邮箱地址一样">'
-    + '<p style="margin-top:16px"><button class="btn" id="mbSaveBtn">保存邮箱</button> <button type="button" class="btn ghost" id="mbCancelBtn" style="display:none">取消编辑</button></p>'
-    + '</form></details></div>';
   h += '<div class="card">';
   if (!S.mailboxes.length) {
-    h += '<p class="muted">还没有邮箱，点下面「＋ 添加邮箱」加第一个吧。建议先加 QQ（用授权码），再加 Outlook / Gmail。</p>';
+    h += '<p class="muted">还没有邮箱，点左栏「＋ 添加邮箱」加第一个吧。建议先加 QQ（用授权码），再加 Outlook / Gmail。</p>';
   } else {
     h += '<div class="folders"><a class="' + (S.mbFilter === '' ? 'on' : '') + '" data-gf="">全部（' + S.mailboxes.length + '）</a>'
       + order.map((g) => '<a class="' + (S.mbFilter === g ? 'on' : '') + '" data-gf="' + esc(g) + '">' + esc(g) + '（' + counts[g] + '）</a>').join('') + '</div>'
@@ -1227,7 +1202,7 @@ function renderMailboxesView(main) {
       const statusTag = m.status === 'ok' ? '<span class="tag ok">连接成功</span>' : (m.status === 'error' ? '<span class="tag fail">连接失败</span>' : '<span class="tag none">未测试</span>');
       h += '<tr><td class="email"><strong>' + esc(m.email) + '</strong>' + (m.kind && m.kind !== 'imap' ? ' <span class="tag ok">' + esc(m.kind) + '</span>' : '') + (m.address && m.address !== m.email ? '<br><span class="muted">' + esc(m.address) + '</span>' : '') + '</td>'
         + '<td><span class="tag gtag-cell" data-mb="' + esc(m.id) + '" style="' + groupTagStyle(g) + ';cursor:pointer" title="点一下改分组">' + esc(g) + '</span></td>'
-        + '<td>授权码 · 应用专用密码</td>'
+        + '<td>密码 / 授权码</td>'
         + '<td class="muted">' + esc(m.imap_host || '') + ':' + (m.imap_port || '') + '</td>'
         + '<td class="err">' + statusTag + '<br><button class="btn ghost sm" data-test="' + esc(m.id) + '" style="margin-top:6px">测试连接</button></td>'
         + '<td style="white-space:nowrap"><button class="btn ghost sm" data-edit="' + esc(m.id) + '">编辑</button> <button class="btn danger sm" data-del="' + esc(m.id) + '">删除</button></td></tr>';
@@ -1236,8 +1211,6 @@ function renderMailboxesView(main) {
     h += '<p class="muted">拖动左栏邮箱可以调换顺序，左栏拖完自动保存。</p>';
   }
   h += '</div>';
-  // 添加邮箱单独放在邮箱管理（分组/表格）下面
-  h += addBarHtml;
 
   main.innerHTML = h;
   // 分组筛选
@@ -1321,7 +1294,12 @@ function renderMailboxesView(main) {
       b.textContent = '测试连接';
     }
   }));
-  $$('#main [data-edit]').forEach((b) => b.addEventListener('click', () => openMbEditor(b.getAttribute('data-edit'))));
+  $$('#main [data-edit]').forEach((b) => b.addEventListener('click', () => {
+    S.view = 'add-mailbox';
+    renderSidebar();
+    renderMain();
+    setTimeout(() => openMbEditor(b.getAttribute('data-edit')), 50);
+  }));
   $$('#main [data-del]').forEach((b) => b.addEventListener('click', async () => {
     const id = b.getAttribute('data-del');
     const mb = S.mailboxes.find((m) => m.id === id);
@@ -1335,23 +1313,58 @@ function renderMailboxesView(main) {
       renderMailboxesView(main);
     } catch (err) { toast(err.message || '删除失败。'); }
   }));
+}
+
+
+// 添加邮箱独立页（照 S00 的做法：单独一页，不嵌在管理页下面）。
+// 新加和编辑共用一张表单：MB_EDIT_ID 为空是新加，不为空是改登录方式 / 凭据。
+function mbFormHtml(order, isEdit) {
+  return '<div class="card"><h2 id="mbFormTitle">' + (isEdit ? '修改登录方式 / 凭据' : '添加邮箱') + '</h2>'
+    + '<p class="muted">先选登录方式，再填凭据。两种方式都支持；哪个能登上，取决于邮箱厂商那边的规则，不是这个页面说了算。保存时先测连接，通了才存。授权码粘贴时带了空格会自动去掉。</p>'
+    + '<div id="mbFormErr"></div>'
+    + '<form id="mbForm" autocomplete="off">'
+    + '<label>邮箱地址</label><input type="email" id="mb_email" placeholder="如 xxx@qq.com" required>'
+    + '<label>厂商 / 域名（选了自动填服务器，也可手动改）</label><select id="mb_provider">'
+    + '<option value="">按邮箱地址自动识别</option>'
+    + Object.entries(MB_PRESETS).map(([d, p]) => '<option value="' + d + '">' + esc(p.label) + '</option>').join('')
+    + '<option value="custom">自定义服务器</option></select>'
+    + '<label>分组</label><div class="row"><div><select id="mb_group">' + order.map((g) => '<option value="' + esc(g) + '">' + esc(g) + '</option>').join('') + '<option value="__new__">新建分组…</option></select></div>'
+    + '<div id="mb_newgroup_wrap" style="display:none"><input type="text" id="mb_newgroup" placeholder="新分组名"></div></div>'
+    + '<label>登录方式（二选一）</label>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap">'
+    + '<label data-method="authcode" style="flex:1;min-width:220px;border:1px solid #16a34a;background:#f0fdf4;border-radius:8px;padding:10px 12px;cursor:pointer;display:block"><input type="radio" name="mb_method" value="authcode" checked> <b>授权码登入（推荐）</b><br><small class="muted">QQ 只有这一种能用；Gmail / Outlook 开了两步验证后也要用它。去邮箱官网生成授权码 / 应用专用密码。</small></label>'
+    + '<label data-method="password" style="flex:1;min-width:220px;border:1px solid #e7e5e4;border-radius:8px;padding:10px 12px;cursor:pointer;display:block"><input type="radio" name="mb_method" value="password"> <b>密码登入</b><br><small class="muted">平时登录邮箱的密码。QQ / Gmail / Outlook 开了两步验证后，服务器通常会拒收，报认证失败。</small></label>'
+    + '</div>'
+    + '<label>密码 / 授权码 <span class="kv-note" id="mb_pass_hint">QQ 填授权码，Gmail 填应用专用密码</span></label>'
+    + '<div style="display:flex;gap:8px;align-items:center"><input type="password" id="mb_pass" placeholder="16 位授权码 / 应用专用密码" style="flex:1" required><button type="button" class="btn ghost sm" id="mb_pass_toggle" style="white-space:nowrap">👁 显示</button></div>'
+    + '<div class="form-grid">'
+    + '<div><label>IMAP 服务器</label><input type="text" id="mb_imap_host" placeholder="imap.qq.com"></div>'
+    + '<div><label>IMAP 端口</label><input type="number" id="mb_imap_port" value="993"></div>'
+    + '<div><label>IMAP 加密</label><select id="mb_imap_enc"><option value="ssl">SSL</option><option value="tls">STARTTLS</option></select></div>'
+    + '<div><label>SMTP 服务器</label><input type="text" id="mb_smtp_host" placeholder="smtp.qq.com"></div>'
+    + '<div><label>SMTP 端口</label><input type="number" id="mb_smtp_port" value="587"></div>'
+    + '<div><label>SMTP 加密</label><select id="mb_smtp_enc"><option value="tls">STARTTLS</option><option value="ssl">SSL</option></select></div>'
+    + '</div>'
+    + '<label>IMAP 登录账号 <span class="kv-note">默认和邮箱地址一样；要填就填完整邮箱地址，不能只填 QQ 号（QQ 会报 Please input email address）</span></label><input type="text" id="mb_login_user" placeholder="默认和邮箱地址一样">'
+    + '<p style="margin-top:16px"><button class="btn" id="mbSaveBtn">' + (isEdit ? '保存修改' : '保存邮箱') + '</button> <button type="button" class="btn ghost" id="mbCancelBtn">' + (isEdit ? '取消编辑' : '返回邮箱管理') + '</button></p>'
+    + '</form></div>';
+}
+
+function renderAddMailboxView(main) {
+  const all = allGroups();
+  const order = all.map((x) => x.name);
+  main.innerHTML = mbFormHtml(order, !!MB_EDIT_ID);
   wireMbForm();
-  // 从左栏「＋ 添加邮箱」点进来的：直接滚到表单并把光标放进邮箱地址框。
-  if (S.openAddMb) {
-    S.openAddMb = false;
-    const bar = $('#addBar');
-    if (bar) { bar.open = true; bar.scrollIntoView({ block: 'start' }); }
-    const em = $('#mb_email');
-    if (em) em.focus();
-  }
+  const em = $('#mb_email');
+  if (em && !MB_EDIT_ID) em.focus();
 }
 
 function openMbEditor(mbId) {
   const mb = S.mailboxes.find((m) => m.id === mbId);
   if (!mb) return;
-  const bar = $('#addBar');
-  if (bar) bar.open = true;
   MB_EDIT_ID = mbId;
+  const title = $('#mbFormTitle');
+  if (title) title.textContent = '修改登录方式 / 凭据';
   $('#mb_email').value = mb.email || '';
   $('#mb_pass').value = '';
   $('#mb_pass').required = false;
@@ -1373,9 +1386,9 @@ function openMbEditor(mbId) {
   $('#mb_smtp_enc').value = mb.smtp_enc || 'tls';
   $('#mb_login_user').value = (mb.login_user && mb.login_user !== mb.email) ? mb.login_user : '';
   $('#mbSaveBtn').textContent = '保存修改';
-  $('#mbCancelBtn').style.display = '';
+  const cancelBtn = $('#mbCancelBtn');
+  if (cancelBtn) { cancelBtn.style.display = ''; cancelBtn.textContent = '取消编辑'; }
   $('#mb_email').focus();
-  $('#mb_email').scrollIntoView({ block: 'nearest' });
 }
 
 // 邮箱凭据归一化（和后端 normalizeMbPass 一致）：授权码粘贴带空格时自动去掉。
@@ -1419,6 +1432,25 @@ function wireMbForm() {
       if (first) fillServers({ imap_host: first.imap_host, imap_port: first.imap_port, imap_enc: first.imap_enc, smtp_host: first.smtp_host, smtp_port: first.smtp_port, smtp_enc: first.smtp_enc });
     }
   });
+  const syncMethodUI = () => {
+    const m = (document.querySelector('input[name="mb_method"]:checked') || {}).value || 'authcode';
+    $$('#mbForm [data-method]').forEach((lb) => {
+      const on = lb.getAttribute('data-method') === m;
+      lb.style.borderColor = on ? '#16a34a' : '#e7e5e4';
+      lb.style.background = on ? '#f0fdf4' : '';
+    });
+    const hint = $('#mb_pass_hint');
+    const passInput = $('#mb_pass');
+    if (m === 'password') {
+      if (hint) hint.textContent = '平时登录邮箱的密码';
+      if (passInput) passInput.placeholder = '登录邮箱的密码';
+    } else {
+      if (hint) hint.textContent = 'QQ 填授权码，Gmail 填应用专用密码';
+      if (passInput) passInput.placeholder = '16 位授权码 / 应用专用密码';
+    }
+  };
+  $$('input[name="mb_method"]').forEach((r) => r.addEventListener('change', syncMethodUI));
+  syncMethodUI();
   $('#mb_pass_toggle').addEventListener('click', () => {
     const inp = $('#mb_pass');
     const show = inp.type === 'password';
@@ -1427,7 +1459,9 @@ function wireMbForm() {
   });
   $('#mbCancelBtn').addEventListener('click', () => {
     MB_EDIT_ID = '';
-    renderMailboxesView($('#main'));
+    S.view = 'mailboxes';
+    renderSidebar();
+    renderMain();
   });
   // 报错提示不用刷新页面就能去掉：点一下提示就消失，改表单内容也自动清掉。
   const errBox0 = $('#mbFormErr');
@@ -1442,7 +1476,14 @@ function wireMbForm() {
     if (errBox) errBox.innerHTML = '';
     const btn = $('#mbSaveBtn');
     const email = $('#mb_email').value.trim();
-    const pass = normMbPass($('#mb_pass').value);
+    const method = (document.querySelector('input[name="mb_method"]:checked') || {}).value || 'authcode';
+    const pass = method === 'password' ? $('#mb_pass').value.trim() : normMbPass($('#mb_pass').value);
+    // 登录账号必须是完整邮箱地址：只填 QQ 号的话，QQ 直接报 Please input email address。
+    const loginUser = $('#mb_login_user').value.trim() || email;
+    if (!loginUser.includes('@')) {
+      errBox.innerHTML = '<div class="flash err" title="点一下去掉这条提示">登录账号要填完整邮箱地址，如 ' + esc(email || '53424209@qq.com') + '，不能只填 QQ 号。QQ 那边就是这么报的：Please input email address（请填邮箱地址）。 <span style="float:right">✕</span></div>';
+      return;
+    }
     let group = $('#mb_group').value;
     if (group === '__new__') group = $('#mb_newgroup').value.trim();
     const body = {
@@ -1454,7 +1495,7 @@ function wireMbForm() {
       smtp_host: $('#mb_smtp_host').value.trim(),
       smtp_port: parseInt($('#mb_smtp_port').value, 10) || 587,
       smtp_enc: $('#mb_smtp_enc').value,
-      login_user: $('#mb_login_user').value.trim() || email,
+      login_user: loginUser,
     };
     if (MB_EDIT_ID) {
       if (pass) body.password = pass;
@@ -1465,8 +1506,9 @@ function wireMbForm() {
         toast('已保存。');
         MB_EDIT_ID = '';
         await loadMailboxes();
+        S.view = 'mailboxes';
         renderSidebar();
-        renderMailboxesView($('#main'));
+        renderMain();
       } catch (err) {
         errBox.innerHTML = '<div class="flash err" title="点一下去掉这条提示">' + esc(err.message || '保存失败。') + ' <span style="float:right">✕</span></div>';
         btn.disabled = false;
@@ -1484,8 +1526,9 @@ function wireMbForm() {
       if (!d.ok) throw new Error(d.err || '添加失败。');
       toast('已添加：' + email);
       await loadMailboxes();
+      S.view = 'mailboxes';
       renderSidebar();
-      renderMailboxesView($('#main'));
+      renderMain();
     } catch (err) {
       errBox.innerHTML = '<div class="flash err" title="点一下去掉这条提示">' + esc(err.message || '添加失败。') + ' <span style="float:right">✕</span></div>';
       btn.disabled = false;
