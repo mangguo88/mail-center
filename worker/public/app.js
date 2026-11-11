@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v24';
+const APP_VERSION = 'v25';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -1163,7 +1163,7 @@ async function sendCompose() {
 
 // ---------- 邮箱管理 ----------
 const MB_PRESETS = {
-  'qq.com': { imap_host: 'imap.qq.com', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.qq.com', smtp_port: 587, smtp_enc: 'tls', label: 'QQ邮箱' },
+  'qq.com': { imap_host: 'imap.qq.com', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.qq.com', smtp_port: 465, smtp_enc: 'ssl', label: 'QQ邮箱' },
   '163.com': { imap_host: 'imap.163.com', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.163.com', smtp_port: 465, smtp_enc: 'ssl', label: '163邮箱' },
   '126.com': { imap_host: 'imap.126.com', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.126.com', smtp_port: 465, smtp_enc: 'ssl', label: '126邮箱' },
   'yeah.net': { imap_host: 'imap.yeah.net', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.yeah.net', smtp_port: 465, smtp_enc: 'ssl', label: 'Yeah邮箱' },
