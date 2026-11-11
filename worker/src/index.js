@@ -414,10 +414,13 @@ export default {
     if (path === '/api/settings' && method === 'GET') {
       const cfg = await effectiveConfig(env);
       const stg = await getSettings(env.DB);
+      // 登入账号和显示名称这里回数据库里的原值（不要回 CF 变量覆盖后的有效值，
+      // 不然登入方式卡片里显示的就是 CF 的账号，点保存会把 CF 的值写进数据库）。
+      const rawSite = await getSite(env.DB);
       return done(json({
         ok: true,
-        username: site.username,
-        display_name: site.display_name,
+        username: rawSite ? rawSite.username : site.username,
+        display_name: rawSite ? rawSite.display_name : site.display_name,
         cache_ttl: site.cache_ttl,
         auto_refresh_ms: cfg.autoRefreshMs,
         inbox_limit: cfg.inboxLimit,
