@@ -196,7 +196,41 @@ textarea{width:100%;padding:10px 12px;border:1px solid #e7e5e4;border-radius:8px
 .spin{display:inline-block;width:14px;height:14px;border:2px solid var(--accent-border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;vertical-align:-2px}
 @keyframes spin{to{transform:rotate(360deg)}}
 @media(max-width:900px){.panes{flex-direction:column}.pane-mid{flex:1;width:auto;margin-left:0}.pane-right{width:100%}.pane-right .card{position:static}.resizer{display:none}}
-@media(max-width:640px){.side{width:200px;min-width:200px;max-width:200px}.side-edge{display:none}.row{flex-direction:column}.form-grid{grid-template-columns:1fr}.form-grid3{grid-template-columns:1fr}.tgslots{grid-template-columns:1fr}.modal-backdrop{padding:12px 8px}}
+/* 手机菜单按钮 / 抽屉遮罩：平时不显示，只在窄屏用 */
+#menuBtn{display:none}
+#sideBackdrop{display:none}
+/* 手机（≤768px）：左栏变抽屉，点顶栏 ☰ 打开，点邮箱 / 导航后自动收起；
+   主区整宽上下排（收件列表在上、读信在下），不再左右挤在一起 */
+@media(max-width:768px){
+  .top{padding:0 10px;gap:8px}
+  .top h1{font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .top .who span{display:none}
+  #menuBtn{display:inline-block;flex:none}
+  .wrap{flex-direction:column}
+  .side{position:fixed;left:0;top:56px;bottom:0;width:280px;max-width:85vw;min-width:0;z-index:800;overflow-y:auto;transform:translateX(-105%);transition:transform .2s ease;border-right:1px solid #e7e5e4;box-shadow:0 8px 30px rgba(0,0,0,.18);padding:14px 12px}
+  body.side-open .side{transform:none}
+  body.side-open #sideBackdrop{display:block}
+  #sideBackdrop{position:fixed;left:0;right:0;top:56px;bottom:0;background:rgba(0,0,0,.35);z-index:700}
+  .side-edge{display:none}
+  .main{padding:10px 8px;max-width:none}
+  /* 手机上忽略桌面记的“收起侧栏”，抽屉里永远完整显示 */
+  .wrap.side-collapsed .side{width:280px;min-width:0;max-width:85vw;padding:14px 12px}
+  .wrap.side-collapsed .side a{text-align:left;padding:10px 12px}
+  .wrap.side-collapsed .side a .lbl{display:inline}
+  .wrap.side-collapsed .mblist,.wrap.side-collapsed .side .muted{display:block}
+  .wrap.side-collapsed .side a.compose-btn{width:150px;padding:8px 0}
+  .wrap.side-collapsed .side a.mb-ico{display:none}
+  .card{padding:14px 10px}
+  .gpick .gmenu{left:0;min-width:200px;max-width:calc(100vw - 24px)}
+  .seg{max-width:100%;flex-wrap:wrap}
+  .seg button{padding:6px 10px}
+  .rich-toolbar{flex-wrap:wrap}
+  .pushrow{flex-wrap:wrap}
+  .login{margin:40px 12px;padding:22px 18px}
+  /* iOS 上字号小于 16px 的输入框一点就自动放大，手机上统一 16px */
+  input[type=text],input[type=password],input[type=email],input[type=number],select,textarea{font-size:16px}
+}
+@media(max-width:640px){.row{flex-direction:column}.form-grid{grid-template-columns:1fr}.form-grid3{grid-template-columns:1fr}.tgslots{grid-template-columns:1fr}.modal-backdrop{padding:12px 8px}}
 
 .theme-sw{width:36px;height:36px;border-radius:50%;border:3px solid transparent;cursor:pointer;padding:0}
 .theme-sw.on{border-color:#292524}

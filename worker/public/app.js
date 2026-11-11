@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v34';
+const APP_VERSION = 'v35';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -335,16 +335,22 @@ async function renderApp() {
   const collapsed = lsGet('mc_side_collapsed', '0') === '1';
 
   document.getElementById('app').innerHTML =
-    '<div class="top"><div class="logo">✉</div><h1>' + esc(S.me.display_name || 'Mail Center') + '</h1>'
+    '<div class="top"><button class="btn ghost sm" id="menuBtn" title="菜单">☰</button><div class="logo">✉</div><h1>' + esc(S.me.display_name || 'Mail Center') + '</h1>'
     + '<span class="who"><span>' + esc(S.me.username || '') + '</span><button class="btn ghost sm" id="logoutBtn">退出</button></span></div>'
     + '<div class="wrap' + (collapsed ? ' side-collapsed' : '') + '" id="wrap">'
     + '<div class="side" id="side"></div>'
     + '<div class="main" id="main"></div>'
-    + '</div>';
+    + '</div>'
+    + '<div id="sideBackdrop"></div>';
   $('#logoutBtn').addEventListener('click', async () => {
     try { await postJson('/api/logout', {}); } catch (e) { /* ignore */ }
     goLogin();
   });
+  // 手机抽屉菜单：点 ☰ 开 / 合，点遮罩合上。
+  const menuBtn = $('#menuBtn');
+  if (menuBtn) menuBtn.addEventListener('click', () => document.body.classList.toggle('side-open'));
+  const backdrop = $('#sideBackdrop');
+  if (backdrop) backdrop.addEventListener('click', () => document.body.classList.remove('side-open'));
   try {
     await loadMailboxes();
   } catch (e) {
@@ -353,6 +359,10 @@ async function renderApp() {
   try { await loadGroups(); } catch (e) { S.groups = []; } // 分组表没建好也不影响主界面
   try { await loadProviders(); } catch (e) { S.providers = []; } // 厂商预设表没建好也不影响主界面
   try { const st = await apiOk('/api/settings'); if (st.theme_accent) applyTheme(st.theme_accent); } catch (e) { /* ignore */ } // 服务器存的主题为准
+  // 打开面板就回到默认页（我的邮箱）：新打开、重新登录都一样。
+  S.view = 'inbox';
+  S.curUid = 0;
+  S.curMsg = null;
   renderSidebar();
   renderMain();
   startInboxAutoRefresh();
@@ -414,11 +424,12 @@ function renderSidebar() {
   h += '<div class="side-edge" id="sideEdge" title="拖动调整侧栏宽度，点圆钮折叠 / 展开"><button class="edge-btn" id="edgeBtn" title="折叠 / 展开侧栏">‹</button></div>';
   side.innerHTML = h;
 
-  $('#composeBtn').addEventListener('click', () => openCompose({}));
+  $('#composeBtn').addEventListener('click', () => { document.body.classList.remove('side-open'); openCompose({}); });
   $('#mbIco').addEventListener('click', (e) => { e.preventDefault(); setSidebarCollapsed(false); });
   $$('#side [data-nav]').forEach((a) => a.addEventListener('click', (e) => {
     e.preventDefault();
     const nav = a.getAttribute('data-nav');
+    document.body.classList.remove('side-open'); // 手机抽屉里点完导航就收起
     if (nav === 'add-mailbox') { S.view = 'add-mailbox'; MB_EDIT_ID = ''; }
     else S.view = nav;
     renderSidebar();
@@ -687,6 +698,7 @@ function renderMain() {
 }
 
 function selectMailbox(mbId) {
+  document.body.classList.remove('side-open'); // 手机抽屉里点完邮箱就收起
   if (S.curMbId === mbId && S.view === 'inbox') return;
   S.curMbId = mbId;
   S.curFolder = 'inbox';
@@ -696,6 +708,30 @@ function selectMailbox(mbId) {
   renderSidebar();
   renderMain();
 }
+
+// 回到默认页（我的邮箱）：每次打开面板都回到这里。
+// 手机上切回标签页、从后台回来超过 60 秒，或页面从浏览器缓存恢复时，都一样。
+// 只换页面不换邮箱（当前选中的邮箱不动），写信弹窗不受影响。
+function goDefaultView() {
+  if (!document.getElementById('main')) return; // 还没登录
+  S.view = 'inbox';
+  S.curFolder = 'inbox';
+  S.curUid = 0;
+  S.curMsg = null;
+  document.body.classList.remove('side-open');
+  renderSidebar();
+  renderMain();
+}
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { hiddenAt = Date.now(); return; }
+  if (!hiddenAt || Date.now() - hiddenAt < 60000) return;
+  hiddenAt = 0;
+  goDefaultView();
+});
+window.addEventListener('pageshow', (e) => {
+  if (e.persisted) goDefaultView();
+});
 
 // ---------- 收件箱（三栏：列表 + 读信） ----------
 function renderInboxView(main) {
