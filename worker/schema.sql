@@ -74,3 +74,17 @@ CREATE TABLE IF NOT EXISTS sessions (
   pw_hash TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+
+-- 自定义厂商预设（v30）：用户自己加的厂商名 + 服务器配置，或改过内置预设后记住的配置。
+-- 按邮箱域名存，下次输这个域名的邮箱自动填；内置预设没改过的不进这张表。
+CREATE TABLE IF NOT EXISTS providers (
+  domain TEXT PRIMARY KEY,
+  label TEXT NOT NULL DEFAULT '',
+  imap_host TEXT NOT NULL DEFAULT '',
+  imap_port INTEGER NOT NULL DEFAULT 993,
+  imap_enc TEXT NOT NULL DEFAULT 'ssl',
+  smtp_host TEXT NOT NULL DEFAULT '',
+  smtp_port INTEGER NOT NULL DEFAULT 587,
+  smtp_enc TEXT NOT NULL DEFAULT 'tls',
+  created_at INTEGER NOT NULL DEFAULT 0
+);

@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v29';
+const APP_VERSION = 'v30';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -128,6 +128,7 @@ const S = {
   settings: null,      // GET /api/settings
   mailboxes: [],       // GET /api/mailboxes
   groups: [],          // GET /api/groups：单独建的空分组（还没加邮箱也能先建好）
+  providers: [],       // GET /api/providers：自定义厂商预设（自己加的厂商名 + 配置）
   unread: {},          // mbId -> 未读数（最新 30 封里数的，和 PHP 版一样）
   view: 'inbox',       // inbox | mailboxes | settings
   curMbId: null,
@@ -163,6 +164,20 @@ function groupsOf(mbs) {
 async function loadGroups() {
   const d = await apiOk('/api/groups');
   S.groups = d.groups || [];
+}
+async function loadProviders() {
+  const d = await apiOk('/api/providers');
+  S.providers = d.providers || [];
+}
+
+// 有效预设 = 内置 + 自定义（自定义同域名覆盖内置）
+function allPresets() {
+  const out = { ...MB_PRESETS };
+  for (const pr of S.providers || []) {
+    if (!pr.domain) continue;
+    out[pr.domain] = { imap_host: pr.imap_host, imap_port: pr.imap_port, imap_enc: pr.imap_enc, smtp_host: pr.smtp_host, smtp_port: pr.smtp_port, smtp_enc: pr.smtp_enc, label: pr.label || pr.domain };
+  }
+  return out;
 }
 
 // 分组 = 邮箱带出来的分组 + 单独建的空分组（还没加邮箱也能先建好）
@@ -307,6 +322,7 @@ async function renderApp() {
     return; // 401 时 api() 里已经跳回登录页
   }
   try { await loadGroups(); } catch (e) { S.groups = []; } // 分组表没建好也不影响主界面
+  try { await loadProviders(); } catch (e) { S.providers = []; } // 厂商预设表没建好也不影响主界面
   renderSidebar();
   renderMain();
   startInboxAutoRefresh();
@@ -1330,8 +1346,9 @@ function mbFormHtml(order, isEdit) {
     + '<label>邮箱地址</label><input type="email" id="mb_email" placeholder="如 xxx@qq.com" autocomplete="off" required>'
     + '<label>厂商 / 域名（选了自动填服务器，也可手动改）</label><select id="mb_provider">'
     + '<option value="">按邮箱地址自动识别</option>'
-    + [...new Map(Object.entries(MB_PRESETS).map(([d, p]) => [p.label, d]))].map(([label, d]) => '<option value="' + d + '">' + esc(label) + '</option>').join('')
+    + [...new Map(Object.entries(allPresets()).map(([d, p]) => [p.label, d]))].map(([label, d]) => '<option value="' + d + '">' + esc(label) + '</option>').join('')
     + '<option value="custom">自定义服务器</option></select>'
+    + '<div id="mb_provider_name_wrap" style="display:none"><label>厂商名称（自己起一个，保存后下次自动记住）</label><input type="text" id="mb_provider_name" placeholder="如 我的企业邮" autocomplete="off"></div>'
     + '<label>分组</label><div class="row"><div><select id="mb_group">' + order.map((g) => '<option value="' + esc(g) + '">' + esc(g) + '</option>').join('') + '<option value="__new__">新建分组…</option></select></div>'
     + '<div id="mb_newgroup_wrap" style="display:none"><input type="text" id="mb_newgroup" placeholder="新分组名"></div></div>'
     + '<label>登录方式（二选一）</label>'
@@ -1341,7 +1358,7 @@ function mbFormHtml(order, isEdit) {
     + '</div>'
     + '<label>密码 / 授权码 <span class="kv-note" id="mb_pass_hint">QQ 填授权码，Gmail 填应用专用密码</span></label>'
     + '<div style="display:flex;gap:8px;align-items:center"><input type="password" id="mb_pass" placeholder="16 位授权码 / 应用专用密码" autocomplete="new-password" style="flex:1" required><button type="button" class="btn ghost sm" id="mb_pass_toggle" style="white-space:nowrap">👁 显示</button></div>'
-    + '<div class="form-grid">'
+    + '<div class="form-grid3">'
     + '<div><label>IMAP 服务器</label><input type="text" id="mb_imap_host" placeholder="imap.qq.com"></div>'
     + '<div><label>IMAP 端口</label><input type="number" id="mb_imap_port" value="993"></div>'
     + '<div><label>IMAP 加密</label><select id="mb_imap_enc"><option value="ssl">SSL</option><option value="tls">STARTTLS</option></select></div>'
@@ -1417,15 +1434,22 @@ function wireMbForm() {
   $('#mb_email').addEventListener('change', () => {
     const email = $('#mb_email').value.trim();
     const domain = (email.split('@')[1] || '').toLowerCase();
-    const preset = MB_PRESETS[domain];
+    const preset = allPresets()[domain];
     if (preset) {
       $('#mb_provider').value = domain;
       fillServers(preset);
+      $('#mb_provider_name_wrap').style.display = 'none';
+    } else if (domain) {
+      // 这个域名没有预设：切到自定义服务器，填个厂商名就能记住，下次不用再填。
+      $('#mb_provider').value = 'custom';
+      $('#mb_provider_name_wrap').style.display = '';
     }
   });
   $('#mb_provider').addEventListener('change', () => {
     const v = $('#mb_provider').value;
-    if (v && v !== 'custom') fillServers(MB_PRESETS[v]);
+    if (v === 'custom') { $('#mb_provider_name_wrap').style.display = ''; return; }
+    $('#mb_provider_name_wrap').style.display = 'none';
+    if (v) fillServers(allPresets()[v]);
   });
   $('#mb_group').addEventListener('change', () => {
     const v = $('#mb_group').value;
@@ -1467,6 +1491,14 @@ function wireMbForm() {
     renderSidebar();
     renderMain();
   });
+  // 记住厂商配置：新加的自定义厂商，或改过已知预设的服务器配置。记不住不影响邮箱已保存。
+  const rememberProviderIfNeeded = async (rp) => {
+    if (!rp) return;
+    try {
+      await apiOk('/api/providers', { method: 'POST', body: JSON.stringify(rp) });
+      await loadProviders();
+    } catch (e) { /* ignore */ }
+  };
   // 报错提示不用刷新页面就能去掉：点一下提示就消失，改表单内容也自动清掉。
   const errBox0 = $('#mbFormErr');
   if (errBox0) errBox0.addEventListener('click', () => { errBox0.innerHTML = ''; });
@@ -1490,15 +1522,31 @@ function wireMbForm() {
     }
     let group = $('#mb_group').value;
     if (group === '__new__') group = $('#mb_newgroup').value.trim();
-    const body = {
-      email,
-      group_name: group,
+    const servers = {
       imap_host: $('#mb_imap_host').value.trim(),
       imap_port: parseInt($('#mb_imap_port').value, 10) || 993,
       imap_enc: $('#mb_imap_enc').value,
       smtp_host: $('#mb_smtp_host').value.trim(),
       smtp_port: parseInt($('#mb_smtp_port').value, 10) || 587,
       smtp_enc: $('#mb_smtp_enc').value,
+    };
+    // 这次填的厂商配置要不要记住：自定义厂商一定记；已知厂商改了服务器配置也记，下次自动填。
+    const domain = (email.split('@')[1] || '').toLowerCase();
+    const selProvider = $('#mb_provider').value;
+    let rememberProvider = null;
+    if (selProvider === 'custom') {
+      rememberProvider = { domain, label: $('#mb_provider_name').value.trim() || domain, ...servers };
+    } else {
+      const known = allPresets()[domain];
+      if (known && (selProvider === '' || selProvider === domain)) {
+        const diff = ['imap_host', 'imap_port', 'imap_enc', 'smtp_host', 'smtp_port', 'smtp_enc'].some((k) => String(servers[k]) !== String(known[k]));
+        if (diff) rememberProvider = { domain, label: known.label, ...servers };
+      }
+    }
+    const body = {
+      email,
+      group_name: group,
+      ...servers,
       login_user: loginUser,
     };
     if (MB_EDIT_ID) {
@@ -1509,6 +1557,7 @@ function wireMbForm() {
         await apiOk('/api/mailboxes/' + encodeURIComponent(MB_EDIT_ID), { method: 'PUT', body: JSON.stringify(body) });
         toast('已保存。');
         MB_EDIT_ID = '';
+        await rememberProviderIfNeeded(rememberProvider);
         await loadMailboxes();
         S.view = 'mailboxes';
         renderSidebar();
@@ -1528,11 +1577,11 @@ function wireMbForm() {
       // 后端添加时先测连接，通了才存；不通这里直接报原因。
       const d = await postJson('/api/mailboxes', body);
       if (!d.ok) throw new Error(d.err || '添加失败。');
-      toast('已添加：' + email);
+      toast('已添加：' + email + '，可以继续加下一个。');
+      await rememberProviderIfNeeded(rememberProvider);
       await loadMailboxes();
-      S.view = 'mailboxes';
       renderSidebar();
-      renderMain();
+      renderAddMailboxView($('#main'));
     } catch (err) {
       errBox.innerHTML = '<div class="flash err" title="点一下去掉这条提示">' + esc(err.message || '添加失败。') + ' <span style="float:right">✕</span></div>';
       btn.disabled = false;

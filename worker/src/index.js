@@ -9,6 +9,7 @@ import {
 import {
   getSite, saveSite, getSettings, saveSettings, listMailboxes, getMailbox, saveMailbox, deleteMailbox,
   listGroups, saveGroup, deleteGroup, renameGroup, countGroupMailboxes, groupDbName,
+  listProviders, getProvider, saveProvider, deleteProvider,
   cacheRead, cacheReadStale, cacheWrite, cacheExpireMailbox, bumpCacheVersion,
   sessionIssue, sessionGet, sessionTouch, sessionRevoke, sessionRevokeOthers,
 } from './db.js';
@@ -589,7 +590,9 @@ export default {
       const password = normalizeMbPass(body.password);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err('邮箱地址格式不对。');
       if (!password) return err('请填写登录密码或授权码（QQ 用授权码，Gmail 用应用专用密码）。');
-      const preset = presetFor(email);
+      const domain = (email.split('@')[1] || '').toLowerCase();
+      const customPreset = domain ? await getProvider(env.DB, domain) : null;
+      const preset = customPreset || presetFor(email);
       const mb = {
         id: 'mb_' + hexEncode(randomBytes(8)),
         kind: 'imap',
@@ -667,6 +670,38 @@ export default {
         return done(json({ ok: true }));
       }
       return err('接口不存在。', 404);
+    }
+
+    // ---------- 自定义厂商预设（v30）：记住用户自己加的厂商名 + 配置，或改过内置预设后的配置 ----------
+    if (path === '/api/providers' && method === 'GET') {
+      const ps = await listProviders(env.DB);
+      return done(json({ ok: true, providers: ps }));
+    }
+
+    if (path === '/api/providers' && method === 'POST') {
+      const body = await readJson(req);
+      if (body === null) return err('请求体不是合法 JSON。');
+      const domain = String(body.domain || '').trim().toLowerCase();
+      if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(domain)) return err('厂商域名不对。');
+      const label = String(body.label || domain).trim().slice(0, 40) || domain;
+      const imap_host = String(body.imap_host || '').trim();
+      const smtp_host = String(body.smtp_host || '').trim();
+      if (!imap_host || !smtp_host) return err('IMAP 和 SMTP 服务器都要填。');
+      await saveProvider(env.DB, {
+        domain, label, imap_host,
+        imap_port: parseInt(body.imap_port || 993, 10) || 993,
+        imap_enc: String(body.imap_enc || 'ssl'),
+        smtp_host,
+        smtp_port: parseInt(body.smtp_port || 587, 10) || 587,
+        smtp_enc: String(body.smtp_enc || 'tls'),
+      });
+      return done(json({ ok: true }));
+    }
+
+    if (path.startsWith('/api/providers/') && method === 'DELETE') {
+      const domain = decodeURIComponent(path.slice('/api/providers/'.length)).toLowerCase();
+      await deleteProvider(env.DB, domain);
+      return done(json({ ok: true }));
     }
 
     // ---------- 分组（单独建的空分组：没加邮箱也能先建好） ----------

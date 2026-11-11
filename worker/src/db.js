@@ -94,6 +94,30 @@ export async function listGroups(db) {
   return results || [];
 }
 
+export async function listProviders(db) {
+  const { results } = await db.prepare('SELECT * FROM providers ORDER BY created_at ASC').all();
+  return results || [];
+}
+
+export async function getProvider(db, domain) {
+  return db.prepare('SELECT * FROM providers WHERE domain = ?1').bind(domain).first();
+}
+
+export async function saveProvider(db, pr) {
+  await db.prepare(
+    `INSERT INTO providers (domain, label, imap_host, imap_port, imap_enc, smtp_host, smtp_port, smtp_enc, created_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+     ON CONFLICT(domain) DO UPDATE SET label=?2, imap_host=?3, imap_port=?4, imap_enc=?5, smtp_host=?6, smtp_port=?7, smtp_enc=?8`,
+  ).bind(
+    pr.domain, pr.label || pr.domain, pr.imap_host || '', pr.imap_port || 993, pr.imap_enc || 'ssl',
+    pr.smtp_host || '', pr.smtp_port || 587, pr.smtp_enc || 'tls', Date.now(),
+  ).run();
+}
+
+export async function deleteProvider(db, domain) {
+  await db.prepare('DELETE FROM providers WHERE domain = ?1').bind(domain).run();
+}
+
 export async function saveGroup(db, name) {
   const row = await db.prepare('SELECT COALESCE(MAX(sort), 0) AS m FROM groups').first();
   const sort = (row ? row.m : 0) + 10;
