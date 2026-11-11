@@ -306,7 +306,11 @@ export class ImapClient {
     const login = await this.cmd(`LOGIN "${imapQuote(user)}" "${imapQuote(pass)}"`);
     if (!login.ok) {
       await this.close();
-      return { ok: false, err: '登录失败：账号或凭据不对，或服务没开。QQ 请用授权码，Gmail 请用应用专用密码；Outlook 请用微软账号登录添加。' };
+      // 把服务器的原话带回来（比如 QQ 的 [AUTHENTICATIONFAILED] 原因）：只凭“登录失败”四个字，
+      // 分不清是码错了、号错了还是服务没开。
+      const detail = (login.text || '').replace(/^NO\s*/i, '').trim().slice(0, 120);
+      const why = detail ? '服务器说：' + detail + '。' : '';
+      return { ok: false, err: '登录失败：' + why + '账号或凭据不对，或服务没开。QQ 请用授权码，Gmail 请用应用专用密码；Outlook 请用微软账号登录添加。' };
     }
     // 网易 163/126/yeah/188（Coremail）要求登录后发 IMAP ID 自报身份（RFC 2971），否则 SELECT 拒登。
     await this.cmd('ID ("name" "MangguoMail" "version" "4.30" "vendor" "Mangguo" "support-url" "https://mangguo.lele.pp.ua/")');

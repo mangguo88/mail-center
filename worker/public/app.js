@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v23';
+const APP_VERSION = 'v24';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -362,6 +362,7 @@ function renderSidebar() {
   h += '</details>';
   h += '<a class="mb-ico" id="mbIco" title="我的邮箱：点一下展开侧栏选邮箱"><span class="ico ico-blue"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2" ry="2"/><path d="M22 6l-10 7L2 6"/></svg></span></a>';
   h += '<a href="#" data-nav="mailboxes" class="' + (S.view === 'mailboxes' ? 'on' : '') + '"><span class="ico"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 12l2 2 4-4"/></svg></span> <span class="lbl">邮箱管理</span></a>';
+  h += '<a href="#" data-nav="add-mailbox" title="直接打开添加邮箱的表单"><span class="ico" style="color:#16a34a;font-weight:bold">＋</span> <span class="lbl">添加邮箱</span></a>';
   h += '<a href="#" data-nav="settings" class="' + (S.view === 'settings' ? 'on' : '') + '"><span class="ico ico-violet"><svg width="1em" height="1em" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 0 2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l.06-.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></span> <span class="lbl">设置</span></a>';
   h += '<div style="margin-top:24px;padding:12px;border-top:1px solid #f5f5f4" class="muted">收信、读信、回信、转发、写信都在本站完成，不用跳去别处。</div><div class="muted" style="padding:0 12px 4px;font-size:11px">版本 ' + APP_VERSION + '</div>';
   h += '<div class="side-edge" id="sideEdge" title="拖动调整侧栏宽度，点圆钮折叠 / 展开"><button class="edge-btn" id="edgeBtn" title="折叠 / 展开侧栏">‹</button></div>';
@@ -372,7 +373,8 @@ function renderSidebar() {
   $$('#side [data-nav]').forEach((a) => a.addEventListener('click', (e) => {
     e.preventDefault();
     const nav = a.getAttribute('data-nav');
-    S.view = nav;
+    if (nav === 'add-mailbox') { S.view = 'mailboxes'; S.openAddMb = true; }
+    else S.view = nav;
     renderSidebar();
     renderMain();
   }));
@@ -1180,8 +1182,8 @@ function renderMailboxesView(main) {
   h += '</div>';
   // 添加邮箱单独放在下面（原来在最上面，点开后表单会把下面的分组/表格顶下去，看着像下面的设置没了）。
   // 没邮箱时默认展开，有邮箱时默认收起，点一下展开，表单就在表格下面，不挡上面的内容。
-  const addBarHtml = '<div class="card"><details class="addbar" id="addBar"' + (S.mailboxes.length ? '' : ' open') + '><summary><span style="color:#16a34a">＋</span> 添加邮箱 <span class="fold">▾</span></summary>'
-    + '<p class="muted">先选登录方式，再填凭据。QQ 用授权码，Gmail 用应用专用密码；哪个能登上，取决于邮箱厂商那边的规则。保存时先测连接，通了才存。</p>'
+  const addBarHtml = '<div class="card"><details class="addbar" id="addBar"' + ((S.mailboxes.length && !S.openAddMb) ? '' : ' open') + '><summary><span style="color:#16a34a">＋</span> 添加邮箱 <span class="fold">▾</span></summary>'
+    + '<p class="muted">先选登录方式，再填凭据。QQ 用授权码，Gmail 用应用专用密码；哪个能登上，取决于邮箱厂商那边的规则。保存时先测连接，通了才存。授权码粘贴时带了空格会自动去掉。</p>'
     + '<div id="mbFormErr"></div>'
     + '<form id="mbForm" autocomplete="off">'
     + '<label>邮箱地址</label><input type="email" id="mb_email" placeholder="如 xxx@qq.com" required>'
@@ -1334,6 +1336,14 @@ function renderMailboxesView(main) {
     } catch (err) { toast(err.message || '删除失败。'); }
   }));
   wireMbForm();
+  // 从左栏「＋ 添加邮箱」点进来的：直接滚到表单并把光标放进邮箱地址框。
+  if (S.openAddMb) {
+    S.openAddMb = false;
+    const bar = $('#addBar');
+    if (bar) { bar.open = true; bar.scrollIntoView({ block: 'start' }); }
+    const em = $('#mb_email');
+    if (em) em.focus();
+  }
 }
 
 function openMbEditor(mbId) {
@@ -1366,6 +1376,13 @@ function openMbEditor(mbId) {
   $('#mbCancelBtn').style.display = '';
   $('#mb_email').focus();
   $('#mb_email').scrollIntoView({ block: 'nearest' });
+}
+
+// 邮箱凭据归一化（和后端 normalizeMbPass 一致）：授权码粘贴带空格时自动去掉。
+function normMbPass(p) {
+  const t = String(p || '').trim();
+  const squashed = t.replace(/\s+/g, '');
+  return /^[A-Za-z0-9]{16}$/.test(squashed) ? squashed : t;
 }
 
 function wireMbForm() {
@@ -1412,12 +1429,20 @@ function wireMbForm() {
     MB_EDIT_ID = '';
     renderMailboxesView($('#main'));
   });
+  // 报错提示不用刷新页面就能去掉：点一下提示就消失，改表单内容也自动清掉。
+  const errBox0 = $('#mbFormErr');
+  if (errBox0) errBox0.addEventListener('click', () => { errBox0.innerHTML = ''; });
+  form.addEventListener('input', () => {
+    const eb = $('#mbFormErr');
+    if (eb) eb.innerHTML = '';
+  });
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     const errBox = $('#mbFormErr');
+    if (errBox) errBox.innerHTML = '';
     const btn = $('#mbSaveBtn');
     const email = $('#mb_email').value.trim();
-    const pass = $('#mb_pass').value;
+    const pass = normMbPass($('#mb_pass').value);
     let group = $('#mb_group').value;
     if (group === '__new__') group = $('#mb_newgroup').value.trim();
     const body = {
@@ -1443,13 +1468,13 @@ function wireMbForm() {
         renderSidebar();
         renderMailboxesView($('#main'));
       } catch (err) {
-        errBox.innerHTML = '<div class="flash err">' + esc(err.message || '保存失败。') + '</div>';
+        errBox.innerHTML = '<div class="flash err" title="点一下去掉这条提示">' + esc(err.message || '保存失败。') + ' <span style="float:right">✕</span></div>';
         btn.disabled = false;
         btn.textContent = '保存修改';
       }
       return;
     }
-    if (!pass) { errBox.innerHTML = '<div class="flash err">请填写密码或授权码。</div>'; return; }
+    if (!pass) { errBox.innerHTML = '<div class="flash err" title="点一下去掉这条提示">请填写密码或授权码。 <span style="float:right">✕</span></div>'; return; }
     body.password = pass;
     btn.disabled = true;
     btn.textContent = '正在测试连接…';
@@ -1462,7 +1487,7 @@ function wireMbForm() {
       renderSidebar();
       renderMailboxesView($('#main'));
     } catch (err) {
-      errBox.innerHTML = '<div class="flash err">' + esc(err.message || '添加失败。') + '</div>';
+      errBox.innerHTML = '<div class="flash err" title="点一下去掉这条提示">' + esc(err.message || '添加失败。') + ' <span style="float:right">✕</span></div>';
       btn.disabled = false;
       btn.textContent = '保存邮箱';
     }

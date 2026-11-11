@@ -263,6 +263,16 @@ function messagePayload(uid, rawBytes) {
   };
 }
 
+// 邮箱凭据归一化：QQ 授权码 / Gmail 应用专用密码都是 16 位字母数字，复制粘贴时常带上空格
+// 或换行（PHP 版会 trim，这里也一样处理）；去空白后正好是 16 位的，直接当授权码用。
+// 普通密码里的空格不碰，只去首尾空白。
+function normalizeMbPass(p) {
+  const t = String(p || '').trim();
+  const squashed = t.replace(/\s+/g, '');
+  if (/^[A-Za-z0-9]{16}$/.test(squashed)) return squashed;
+  return t;
+}
+
 function publicMailbox(mb) {
   if (!mb) return null;
   const { pass_enc, panel_pass_enc, ...rest } = mb;
@@ -572,7 +582,7 @@ export default {
       const body = await readJson(req);
       if (body === null) return err('请求体不是合法 JSON。');
       const email = String(body.email || '').trim();
-      const password = String(body.password || '');
+      const password = normalizeMbPass(body.password);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err('邮箱地址格式不对。');
       if (!password) return err('请填写登录密码或授权码（QQ 用授权码，Gmail 用应用专用密码）。');
       const preset = presetFor(email);
@@ -638,7 +648,7 @@ export default {
           if (Number.isInteger(body[k])) next[k] = body[k];
         }
         if (typeof body.password === 'string' && body.password) {
-          next.pass_enc = await encryptCred(body.password, credKey);
+          next.pass_enc = await encryptCred(normalizeMbPass(body.password), credKey);
         }
         if (typeof body.panel_password === 'string' && body.panel_password) {
           next.panel_pass_enc = await encryptCred(body.panel_password, credKey);
