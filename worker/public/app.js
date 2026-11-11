@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v30';
+const APP_VERSION = 'v31';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -1366,7 +1366,9 @@ function mbFormHtml(order, isEdit) {
     + '<div><label>SMTP 端口</label><input type="number" id="mb_smtp_port" value="587"></div>'
     + '<div><label>SMTP 加密</label><select id="mb_smtp_enc"><option value="tls">STARTTLS</option><option value="ssl">SSL</option></select></div>'
     + '</div>'
-    + '<label>IMAP 登录账号 <span class="kv-note">默认和邮箱地址一样；要填就填完整邮箱地址，不能只填 QQ 号（QQ 会报 Please input email address）</span></label><input type="text" id="mb_login_user" placeholder="默认和邮箱地址一样" autocomplete="off">'
+    + '<details class="mb-adv"><summary>高级设置：IMAP 登录账号（一般不用展开）</summary>'
+    + '<label>IMAP 登录账号 <span class="kv-note">留空就用邮箱地址。极少数邮箱的登录名和邮箱地址不一样（比如用工号 / 单独账号登录的企业邮），才需要填；要填就填完整邮箱地址，不能只填 QQ 号（QQ 会报 Please input email address）</span></label><input type="text" id="mb_login_user" placeholder="默认和邮箱地址一样" autocomplete="off">'
+    + '</details>'
     + '<p style="margin-top:16px"><button class="btn" id="mbSaveBtn">' + (isEdit ? '保存修改' : '保存邮箱') + '</button> <button type="button" class="btn ghost" id="mbCancelBtn">' + (isEdit ? '取消编辑' : '返回邮箱管理') + '</button></p>'
     + '</form></div>';
 }
@@ -1399,6 +1401,18 @@ function openMbEditor(mbId) {
     gsel.appendChild(o);
   }
   gsel.value = g;
+  // 编辑时厂商下拉也按邮箱域名显示对应厂商（未知域名切自定义并显示厂商名称框）
+  const domain = ((mb.email || '').split('@')[1] || '').toLowerCase();
+  if (allPresets()[domain]) {
+    $('#mb_provider').value = domain;
+    $('#mb_provider_name_wrap').style.display = 'none';
+  } else if (domain) {
+    $('#mb_provider').value = 'custom';
+    $('#mb_provider_name_wrap').style.display = '';
+  }
+  // 这条记录本来就有单独的登录账号时，把高级设置展开，免得看不见。
+  const adv = $('#mb_login_user').closest('details');
+  if (adv) adv.open = !!(mb.login_user && mb.login_user !== mb.email);
   $('#mb_imap_host').value = mb.imap_host || '';
   $('#mb_imap_port').value = mb.imap_port || 993;
   $('#mb_imap_enc').value = mb.imap_enc || 'ssl';
@@ -1431,7 +1445,7 @@ function wireMbForm() {
     $('#mb_smtp_port').value = p.smtp_port;
     $('#mb_smtp_enc').value = p.smtp_enc;
   };
-  $('#mb_email').addEventListener('change', () => {
+  const applyEmailPreset = (onBlur) => {
     const email = $('#mb_email').value.trim();
     const domain = (email.split('@')[1] || '').toLowerCase();
     const preset = allPresets()[domain];
@@ -1439,12 +1453,14 @@ function wireMbForm() {
       $('#mb_provider').value = domain;
       fillServers(preset);
       $('#mb_provider_name_wrap').style.display = 'none';
-    } else if (domain) {
-      // 这个域名没有预设：切到自定义服务器，填个厂商名就能记住，下次不用再填。
+    } else if (onBlur && domain) {
+      // 离框时这个域名还没有预设：切到自定义服务器，填个厂商名就能记住，下次不用再填。
       $('#mb_provider').value = 'custom';
       $('#mb_provider_name_wrap').style.display = '';
     }
-  });
+  };
+  $('#mb_email').addEventListener('input', () => applyEmailPreset(false));
+  $('#mb_email').addEventListener('change', () => applyEmailPreset(true));
   $('#mb_provider').addEventListener('change', () => {
     const v = $('#mb_provider').value;
     if (v === 'custom') { $('#mb_provider_name_wrap').style.display = ''; return; }

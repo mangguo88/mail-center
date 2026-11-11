@@ -187,7 +187,10 @@ textarea{width:100%;padding:10px 12px;border:1px solid #e7e5e4;border-radius:8px
 .reader-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}
 .reader-actions .spacer{flex:1}
 .form-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
-.form-grid3{display:grid;grid-template-columns:2fr 1fr 1fr;gap:0 12px}
+.form-grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0 12px}
+.mb-adv{margin:16px 0 0;border:1px solid #e7e5e4;border-radius:10px;padding:8px 12px 12px}
+.mb-adv summary{cursor:pointer;font-size:13px;color:#78716c}
+.mb-adv label{margin-top:10px}
 .kv-note{font-size:12px;color:#a8a29e}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid #bbf7d0;border-top-color:#16a34a;border-radius:50%;animation:spin 0.8s linear infinite;vertical-align:-2px}
 @keyframes spin{to{transform:rotate(360deg)}}
