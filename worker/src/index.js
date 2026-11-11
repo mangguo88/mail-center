@@ -2,7 +2,7 @@
 // TG 轮询在 Phase 3 已接（src/tg.js：Cron 每 5 分钟 + /api/tgcheck）；域名邮箱适配器、Outlook 还在 Phase 3。
 
 import {
-  b64encode, randomBytes, sha256Hex, hexEncode,
+  b64encode, b64decode, randomBytes, sha256Hex, sha256Bytes, hexEncode,
   loginHash, credCryptoKey, importCredKey, exportCredKeyRaw,
   encryptCred, decryptCred, wrapKeyForToken, unwrapKeyForToken,
 } from './crypto.js';
@@ -29,9 +29,14 @@ const REMEMBER_DAYS = [90, 180, 365];
 // MC_SIDEBAR_W（左栏宽 px，默认 240）、MC_MID_W（收件栏默认宽 px，默认 220）、
 // MC_AUTO_REFRESH_MS（自动刷新间隔毫秒，默认 30000）。
 // 另外两个面板变量：MC_DISPLAY_NAME（设置面板名称，如 芒果邮箱管理中心，不填用数据库里的）、
-// MC_ADMIN_USER（登入账号，不填用数据库里的账号；密码仍用数据库里的站点密码）。
-// 注意：站点密码没有对应的环境变量——站点密码不只是登录口令，还是解密邮箱凭据的密钥，
-// 改密码必须走设置页的改密码（会把所有邮箱凭据用新密钥重加密），单改一个环境变量会让邮箱全登不上。
+// MC_ADMIN_USER（登入账号，不填用数据库里的账号）、MC_ADMIN_PASS（登入密码，不填用数据库里的站点密码）。
+// 初始默认：账号 admin、密码 123456（只在站点还没设置过时是这个；面板里改过账号密码后以面板的为准）。
+// 注意：站点密码不只是登录口令，还是解密邮箱凭据的密钥，
+// 改密码必须走设置页的“登入方式”（会把所有邮箱凭据用新密钥重加密），单改一个环境变量会让邮箱全登不上。
+// 所以 MC_ADMIN_PASS 只是多一个能登录的口令：登录时先认数据库里的站点密码，
+// 再认 CF 的 MC_ADMIN_PASS；用 CF 密码登时，邮箱凭据靠 login_wrap 解——
+// login_wrap 是登录态下用当前 MC_ADMIN_PASS 把派生密钥包一份存 D1（和 TG 的 tg_wrap 一个做法），
+// 面板里保存设置、改密码、用站点密码登录时都会顺手生成/更新，关掉办法是把 CF 的 MC_ADMIN_PASS 删了再保存一次设置。
 function uiConfig(env, settings = {}) {
   const num = (v, d) => {
     const n = parseInt(String(v == null ? '' : v), 10);
@@ -70,6 +75,51 @@ function effectiveSite(env, site) {
     display_name: cfg.displayName || site.display_name,
   };
 }
+
+// CF 面板的登入密码变量 MC_ADMIN_PASS（值绝不能进 /api/status 的 config，
+// 那个接口不用登录；这里单独读，只在登录那一刻用）。
+function cfLoginPass(env) {
+  return String(env.MC_ADMIN_PASS == null ? '' : env.MC_ADMIN_PASS).trim();
+}
+
+// login_wrap：用 MC_ADMIN_PASS 把派生密钥原文包一份存 D1（settings.login_wrap），
+// 这样用 CF 密码登录时也能解邮箱凭据。不跑 PBKDF2，只用 SHA-256(MC_ADMIN_PASS) 作 AES 密钥。
+async function wrapCredForLogin(rawCredKey, cfPass) {
+  const wrapRaw = await sha256Bytes(te.encode(cfPass));
+  const wrapKey = await crypto.subtle.importKey('raw', wrapRaw, 'AES-GCM', false, ['encrypt', 'decrypt']);
+  const iv = randomBytes(12);
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, wrapKey, rawCredKey));
+  const packed = new Uint8Array(iv.length + ct.length);
+  packed.set(iv);
+  packed.set(ct, iv.length);
+  return b64encode(packed);
+}
+async function unwrapCredForLogin(wrapB64, cfPass) {
+  try {
+    const wrapRaw = await sha256Bytes(te.encode(cfPass));
+    const wrapKey = await crypto.subtle.importKey('raw', wrapRaw, 'AES-GCM', false, ['encrypt', 'decrypt']);
+    const packed = b64decode(wrapB64);
+    const iv = packed.slice(0, 12);
+    const ct = packed.slice(12);
+    const raw = new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, wrapKey, ct));
+    return raw.length === 32 ? raw : null;
+  } catch {
+    return null;
+  }
+}
+// 登录态下顺手保证 login_wrap 存在（CF 设了 MC_ADMIN_PASS 才需要）：
+// 刚在 CF 加了 MC_ADMIN_PASS 的话，用站点密码登一次、或保存一次设置，就会生成；
+// 之后用 CF 密码登也能解邮箱凭据。CF 删了 MC_ADMIN_PASS 后，保存一次设置会清掉它。
+async function ensureLoginWrap(env, credKey) {
+  const cfPass = cfLoginPass(env);
+  if (!cfPass) return;
+  try {
+    const stg = await getSettings(env.DB);
+    if (stg.login_wrap) return;
+    await saveSettings(env.DB, { login_wrap: await wrapCredForLogin(await exportCredKeyRaw(credKey), cfPass) });
+  } catch { /* 生成失败不影响当前登录 */ }
+}
+
 const SESSION_COOKIE = 'mc_session';
 
 const PRESETS = {
@@ -307,18 +357,43 @@ export default {
       const eff = effectiveSite(env, site);
       const username = String(body.username || '').trim().toLowerCase();
       const password = String(body.password || '');
-      // 登录账号认两个：数据库里的账号，和面板变量 MC_ADMIN_USER（密码仍是数据库里的站点密码）。
+      // 登录账号认两个：数据库里的账号，和面板变量 MC_ADMIN_USER。
       const allowed = [String(site.username).toLowerCase(), eff.username.toLowerCase()].filter(Boolean);
       if (!allowed.includes(username)) return err('账号或密码不对。', 401);
-      const hash = await loginHash(password, site.salt);
-      if (hash !== site.pass_hash) return err('账号或密码不对。', 401);
       const days = REMEMBER_DAYS.includes(body.remember_days) ? body.remember_days : 0;
-      const s = await issueSession(env, site, password, days);
-      return json(
-        { ok: true, username: eff.username, display_name: eff.display_name },
-        200,
-        { 'Set-Cookie': sessionCookieHeader(s.hex, s.maxAge) },
-      );
+      // 先认数据库里的站点密码（派生密钥直接算出来）。
+      const hash = await loginHash(password, site.salt);
+      if (hash === site.pass_hash) {
+        const s = await issueSession(env, site, password, days);
+        await ensureLoginWrap(env, s.credKey);
+        return json(
+          { ok: true, username: eff.username, display_name: eff.display_name },
+          200,
+          { 'Set-Cookie': sessionCookieHeader(s.hex, s.maxAge) },
+        );
+      }
+      // 再认 CF 面板的 MC_ADMIN_PASS（用 login_wrap 解派生密钥；没包就登不上，
+      // 先用站点密码登一次、保存一次设置生成后再用 CF 密码登）。
+      const cfPass = cfLoginPass(env);
+      if (cfPass && password === cfPass) {
+        const stg = await getSettings(env.DB);
+        const raw = stg.login_wrap ? await unwrapCredForLogin(stg.login_wrap, cfPass) : null;
+        if (raw) {
+          const credKey = await importCredKey(raw);
+          const token = randomBytes(32);
+          const hex = hexEncode(token);
+          const tokenHash = await sha256Hex(hex);
+          const keyEnc = await wrapKeyForToken(raw, hex);
+          await sessionIssue(env.DB, { tokenHash, keyEnc, days: days || 0.5, pwHash: site.pass_hash });
+          const maxAge = days ? days * 86400 : undefined;
+          return json(
+            { ok: true, username: eff.username, display_name: eff.display_name },
+            200,
+            { 'Set-Cookie': sessionCookieHeader(hex, maxAge) },
+          );
+        }
+      }
+      return err('账号或密码不对。', 401);
     }
 
     // ---------- 以下都要登录 ----------
@@ -352,6 +427,8 @@ export default {
         tg_configured: !!(site.tg_bot_token && site.tg_chat_id),
         tg_chat_id: site.tg_chat_id || '',
         tg_token_masked: site.tg_bot_token ? '****' + String(site.tg_bot_token).slice(-4) : '',
+        // 只回“设没设”，不回值（MC_ADMIN_PASS 的值绝不能出这个接口）。
+        cf_login: { user_set: !!cfg.adminUser, pass_set: !!cfLoginPass(env) },
         tg_last_run: stg.tg_last_run || '',
         tg_key: site.tg_key || '',
       }));
@@ -396,6 +473,13 @@ export default {
         }
       }
       await saveSite(env.DB, next);
+      // CF 设了 MC_ADMIN_PASS 的话，顺手保证 login_wrap 存在（刚加了 CF 密码时靠这一步生成）；
+      // CF 删了 MC_ADMIN_PASS 的话，清掉 login_wrap，CF 密码就登不上了。
+      if (cfLoginPass(env)) await ensureLoginWrap(env, credKey);
+      else {
+        const stg3 = await getSettings(env.DB);
+        if (stg3.login_wrap) await saveSettings(env.DB, { login_wrap: '' });
+      }
       return done(json({ ok: true }));
     }
 
@@ -433,8 +517,16 @@ export default {
       const current = String(body.current || '');
       const nextPw = String(body.new || '');
       if (nextPw.length < 4) return err('新密码至少 4 位。');
+      // 登入账号一起改（登入方式卡片里填；不填 = 只改密码，账号不动）。
+      // 注意：当前密码这里填面板里设的站点密码（不是 CF 的 MC_ADMIN_PASS），因为要凭它解邮箱凭据。
       const curHash = await loginHash(current, site.salt);
       if (curHash !== site.pass_hash) return err('当前密码不对。', 401);
+      let nextUsername = site.username;
+      if (typeof body.new_username === 'string' && body.new_username.trim()) {
+        const nu = body.new_username.trim().toLowerCase();
+        if (!/^[a-z0-9_@.\-]{1,40}$/.test(nu)) return err('登入账号只能用字母、数字和 _ @ . -，40 个字以内。');
+        nextUsername = nu;
+      }
       // 换密码要把所有已存邮箱凭据用旧密钥解开、再用新密钥重加密，否则邮箱全登不上。
       const oldKey = credKey;
       const newSalt = b64encode(randomBytes(16));
@@ -452,11 +544,15 @@ export default {
         }
         await saveMailbox(env.DB, next);
       }
-      const nextSite = { ...site, salt: newSalt, pass_hash: await loginHash(nextPw, newSalt) };
+      const nextSite = { ...site, username: nextUsername, salt: newSalt, pass_hash: await loginHash(nextPw, newSalt) };
       // TG 开着的话，派生密钥变了要重包 tg_wrap，不然 Cron 解不开邮箱凭据。
       if (nextSite.tg_enabled && nextSite.tg_key) {
         const wrap = await wrapTgKey(await exportCredKeyRaw(newKey), nextSite.tg_key);
         await saveSettings(env.DB, { tg_wrap: wrap });
+      }
+      // CF 设了 MC_ADMIN_PASS 的话，派生密钥变了也要重包 login_wrap，不然 CF 密码登不上。
+      if (cfLoginPass(env)) {
+        await saveSettings(env.DB, { login_wrap: await wrapCredForLogin(await exportCredKeyRaw(newKey), cfLoginPass(env)) });
       }
       await saveSite(env.DB, nextSite);
       await sessionRevoke(env.DB, null);

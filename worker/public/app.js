@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v22';
+const APP_VERSION = 'v23';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -1501,12 +1501,21 @@ async function renderSettingsView(main) {
     + '<input type="number" id="set_smtp_timeout" min="10000" max="120000" step="1000" value="' + (st.smtp_timeout_ms == null ? 60000 : st.smtp_timeout_ms) + '"' + ((st.env_locked && st.env_locked.smtpTimeoutMs) ? ' disabled' : '') + '>'
     + '<p class="muted">60000 就是 60 秒。CF 面板上设了同名变量（MC_AUTO_REFRESH_MS / MC_INBOX_LIMIT / MC_SMTP_TIMEOUT_MS）的那项会灰掉，以 CF 面板的值为准，这里改了也不生效；没设的在这里改，保存后立刻生效。</p>'
     + '<p><button class="btn ghost">保存收件与发信设置</button></p></form>'
-    + '<form id="setPassForm" autocomplete="off"><label>当前站点密码</label>'
+    + '<h2 style="margin-top:16px">登入方式</h2>'
+    + '<p class="muted">账号设置：登入账号重新设置、新密码设置、保存新密码。改了之后用新的账号密码登录；邮箱凭据会用新密码重新加密，改完所有记住的设备都要重新登录。</p>'
+    + '<form id="setPassForm" autocomplete="off"><label>登入账号</label>'
+    + '<input type="text" id="set_user" value="' + esc(st.username || '') + '" autocomplete="username">'
+    + '<label>当前站点密码</label>'
     + '<input type="password" id="set_cur" autocomplete="current-password" required>'
     + '<label>新站点密码（至少 4 位）</label><input type="password" id="set_new" autocomplete="new-password" required>'
     + '<label>再输一次新站点密码</label><input type="password" id="set_new2" autocomplete="new-password" required>'
-    + '<p><button class="btn">改站点密码</button></p>'
-    + '<p class="muted">改站点密码后，已存的邮箱凭据会用新密钥重新加密。改完密码，所有记住的设备都要重新登录。</p></form>'
+    + '<p><button class="btn">保存新密码</button></p>'
+    + '<p class="muted">改站点密码后，已存的邮箱凭据会用新密钥重新加密。改完密码，所有记住的设备都要重新登录。当前密码这里填面板里设的站点密码（不是 CF 的登入密码变量）。</p>'
+    + '<p class="muted">CF 面板变量：MC_ADMIN_USER（登入账号）、MC_ADMIN_PASS（登入密码）。'
+    + ((st.cf_login && (st.cf_login.user_set || st.cf_login.pass_set))
+      ? '现在 CF 上设了' + (st.cf_login.user_set ? '登入账号' : '') + (st.cf_login.user_set && st.cf_login.pass_set ? '和' : '') + (st.cf_login.pass_set ? '登入密码' : '') + '，登录用 CF 的那套；面板里这套照样能登（备用）。CF 上删掉变量、保存一次设置后，就只认面板这套。'
+      : '现在 CF 上没设这两个变量，登录就用上面这套。初始默认是 admin / 123456；面板里改过账号密码后，以面板改过的为准。')
+    + 'CF 的密码值不会在这里显示，也不会出现在接口返回里。</p></form>'
     + '<div><label>记住的设备</label>'
     + '<p class="muted" style="margin:4px 0 10px">不认识的设备、或者换了电脑不想再记住，就点下面全部退出（当前这个浏览器不断线）。</p>'
     + '<p><button class="btn ghost" id="revokeAllBtn">退出所有记住的设备</button></p></div>'
@@ -1566,12 +1575,13 @@ async function renderSettingsView(main) {
   $('#setPassForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const cur = $('#set_cur').value, nw = $('#set_new').value, nw2 = $('#set_new2').value;
+    const nu = $('#set_user').value.trim();
     if (nw.length < 4) { toast('新密码至少 4 位。'); return; }
     if (nw !== nw2) { toast('两次输入的新密码不一样。'); return; }
     try {
-      const d = await postJson('/api/settings/password', { current: cur, new: nw });
+      const d = await postJson('/api/settings/password', { current: cur, new: nw, new_username: nu });
       if (!d.ok) throw new Error(d.err || '改密码失败。');
-      toast('密码已改，请重新登录。');
+      toast('账号密码已改，请重新登录。');
       goLogin();
     } catch (err) { toast(err.message || '改密码失败。'); }
   });
