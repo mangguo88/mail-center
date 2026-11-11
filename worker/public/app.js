@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v32';
+const APP_VERSION = 'v33';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -914,7 +914,7 @@ function renderInboxList() {
     btn.addEventListener('click', async (e) => {
       e.stopPropagation();
       const uid = parseInt(btn.getAttribute('data-del'), 10);
-      if (!confirm('删除这封邮件？（有已删除文件夹就移过去，没有就直接删）')) return;
+      if (!confirm(delConfirmText())) return;
       await mailAction('/api/delete', uid);
     });
   });
@@ -924,9 +924,11 @@ function renderInboxList() {
 function renderReaderEmpty() {
   const card = $('#readerCard');
   if (!card) return;
+  const mb = curMailbox();
+  const isApi = mb && mb.kind !== 'imap';
   card.innerHTML = '<h2>读信</h2>'
     + '<div class="empty-reader"><div class="big">✉</div><p>点一封邮件查看。</p>'
-    + '<p class="muted">支持回复、转发、标已读、移到垃圾箱 / 已删除。</p></div>';
+    + '<p class="muted">支持回复、转发、标已读' + (isApi ? '、删除' : '、移到垃圾箱 / 已删除') + '。</p></div>';
 }
 
 async function openMessage(uid) {
@@ -973,6 +975,7 @@ function renderReader() {
   const hasText = !!(m.text && m.text.trim());
   const hasHtml = !!(m.html && m.html.trim());
   const bodyMode = hasText ? 'text' : (hasHtml ? 'html' : 'text');
+  const mbIsApi = curMailbox() && curMailbox().kind !== 'imap'; // 域名邮箱没有垃圾箱/已删除，不能移动；也不支持取消已读
   card.innerHTML =
     '<h2>' + esc(m.subject !== '' ? m.subject : '（无主题）') + '</h2>'
     + '<p class="reader-meta">发件人：' + esc(m.from_raw || ((m.from_name || '') + ' ' + (m.from_addr || ''))) + '<br>收件人：' + esc(m.to || '') + (m.cc ? '<br>抄送：' + esc(m.cc) : '') + '<br>' + timeLine + '</p>'
@@ -987,10 +990,10 @@ function renderReader() {
     + '<div class="reader-actions">'
     + '<button class="btn" id="btnReply">回复</button>'
     + '<button class="btn ghost" id="btnFwd">转发</button>'
-    + '<button class="btn ghost" id="btnFlag">' + (isCurSeen() ? '标为未读' : '标为已读') + '</button>'
+    + ((mbIsApi && isCurSeen()) ? '' : '<button class="btn ghost" id="btnFlag">' + (isCurSeen() ? '标为未读' : '标为已读') + '</button>')
     + '<span class="spacer"></span>'
-    + (S.curFolder !== 'spam' ? '<button class="btn ghost" id="btnSpam">移到垃圾箱</button>' : '')
-    + (S.curFolder !== 'trash' ? '<button class="btn ghost" id="btnTrash">移到已删除</button>' : '')
+    + (!mbIsApi && S.curFolder !== 'spam' ? '<button class="btn ghost" id="btnSpam">移到垃圾箱</button>' : '')
+    + (!mbIsApi && S.curFolder !== 'trash' ? '<button class="btn ghost" id="btnTrash">移到已删除</button>' : '')
     + '<button class="btn danger" id="btnDel">删除</button>'
     + '</div>';
   const showBody = (mode) => {
@@ -1013,7 +1016,8 @@ function renderReader() {
   });
   $('#btnReply').addEventListener('click', () => openCompose({ replyTo: m }));
   $('#btnFwd').addEventListener('click', () => openCompose({ forwardOf: m }));
-  $('#btnFlag').addEventListener('click', async () => {
+  const flagBtn = $('#btnFlag');
+  if (flagBtn) flagBtn.addEventListener('click', async () => {
     const seen = !isCurSeen();
     try {
       await postJsonOk('/api/flag', { mb: S.curMbId, folder: S.curFolder, uid: S.curUid, seen });
@@ -1030,7 +1034,7 @@ function renderReader() {
   if (moveBtn) moveBtn.addEventListener('click', async () => { if (confirm('移到垃圾箱？')) await mailAction('/api/move', S.curUid, { dest: 'spam' }); });
   const trashBtn = $('#btnTrash');
   if (trashBtn) trashBtn.addEventListener('click', async () => { if (confirm('移到已删除？')) await mailAction('/api/move', S.curUid, { dest: 'trash' }); });
-  $('#btnDel').addEventListener('click', async () => { if (confirm('删除这封邮件？（有已删除文件夹就移过去，没有就直接删）')) await mailAction('/api/delete', S.curUid); });
+  $('#btnDel').addEventListener('click', async () => { if (confirm(delConfirmText())) await mailAction('/api/delete', S.curUid); });
 }
 function isCurSeen() {
   const row = S.list.find((x) => x.uid === S.curUid);
@@ -1115,9 +1119,9 @@ function openCompose(opts) {
     + '<button type="button" data-cmd="bold"><b>B</b></button><button type="button" data-cmd="italic"><i>I</i></button>'
     + '<button type="button" data-cmd="underline"><u>U</u></button><button type="button" data-cmd="createLink">链接</button>'
     + '</div><div class="rich-edit" id="cmpHtml" contenteditable="true"></div></div>'
-    + '<label>附件（总共不超过 10MB）</label>'
+    + '<div id="cmpAttWrap"><label>附件（总共不超过 10MB）</label>'
     + '<input type="file" id="cmpFiles" multiple style="padding:6px 0">'
-    + '<ul class="att-list" id="cmpAttList"></ul>'
+    + '<ul class="att-list" id="cmpAttList"></ul></div>'
     + '<div class="modal-actions"><button class="btn" id="cmpSend">发送</button><button class="btn ghost" id="cmpCancel">取消</button>'
     + '<span class="muted" id="cmpHint">发出去的信会尽力存一份到已发送。</span></div>'
     + '</div></div>';
@@ -1125,6 +1129,17 @@ function openCompose(opts) {
   $('#cmpHtml').innerHTML = htmlQ;
   $('#cmpBack').addEventListener('click', (e) => { if (e.target.id === 'cmpBack') closeCompose(); });
   $('#cmpCancel').addEventListener('click', closeCompose);
+  // 域名邮箱发信不支持附件：发件邮箱换成 Henna / Cloud Mail 时把附件入口藏起来。
+  const syncCmpFrom = () => {
+    const mb = S.mailboxes.find((m) => m.id === $('#cmpFrom').value);
+    const isApi = mb && mb.kind !== 'imap';
+    const wrap = $('#cmpAttWrap');
+    if (wrap) wrap.style.display = isApi ? 'none' : '';
+    const hint = $('#cmpHint');
+    if (hint) hint.textContent = isApi ? '域名邮箱发信不支持附件，抄送会并进收件人。' : '发出去的信会尽力存一份到已发送。';
+  };
+  $('#cmpFrom').addEventListener('change', syncCmpFrom);
+  syncCmpFrom();
   $('#cmpSeg').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-mode]');
     if (!b) return;
@@ -1240,7 +1255,7 @@ function renderMailboxesView(main) {
       + '<p class="muted">' + (S.mbFilter !== '' ? '只看"' + esc(S.mbFilter) + '"分组的邮箱，点"全部"或表格里「分组」列头的 ▾ 换分组。' : '点上面某个分组，或点表格里「分组」列头的 ▾，就只列出该分组的邮箱。') + '</p>';
     h += '<div style="border:1px solid #e7e5e4;border-radius:8px;padding:12px;margin:0 0 12px"><strong>分组管理</strong> <span class="muted">改一个分组名，这个分组里的邮箱一起跟着改，不用一个个改。</span>'
       + order.map((g) => '<div style="display:flex;gap:8px;align-items:center;margin:8px 0 0;flex-wrap:wrap"><span style="width:180px;flex:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(g) + '（' + counts[g] + '）">' + esc(g) + '（' + counts[g] + '）</span><span class="muted">改成</span><input type="text" class="gname-input" data-group="' + esc(g) + '" value="' + esc(g) + '" style="width:130px;padding:6px 8px;border:1px solid #e7e5e4;border-radius:6px;font-size:14px"><button class="btn ghost sm" data-rename="' + esc(g) + '">改分组名</button>' + (counts[g] === 0 ? ' <button class="btn danger sm" data-delgroup="' + esc(g) + '">删除分组</button>' : '') + '</div>').join('')
-      + '<div style="display:flex;gap:8px;align-items:center;margin:8px 0 0;flex-wrap:wrap"><span style="width:180px;flex:none" class="muted">新建分组</span><input type="text" id="newGroupInput" placeholder="新分组名" style="width:130px;padding:6px 8px;border:1px solid #e7e5e4;border-radius:6px;font-size:14px"><button class="btn ghost sm" id="newGroupBtn">新建分组</button></div>'
+      + '<div style="display:flex;gap:8px;align-items:center;margin:8px 0 0;flex-wrap:wrap"><span style="width:180px;flex:none" class="muted">新建分组</span><span class="muted" style="visibility:hidden">改成</span><input type="text" id="newGroupInput" placeholder="新分组名" style="width:130px;padding:6px 8px;border:1px solid #e7e5e4;border-radius:6px;font-size:14px"><button class="btn ghost sm" id="newGroupBtn">新建分组</button></div>'
       + '</div>';
     h += '<div class="tablewrap"><table><tr><th>邮箱</th><th><details class="gpick"><summary title="点一下按分组筛选">分组' + (S.mbFilter !== '' ? '：' + esc(S.mbFilter) : '') + ' <span class="fold">▾</span></summary><div class="gmenu">'
       + (S.mbFilter === '' ? '<span class="gcur">✓ 全部（' + S.mailboxes.length + '）</span>' : '<a href="#" data-gf="">全部（' + S.mailboxes.length + '）</a>')
@@ -1250,10 +1265,12 @@ function renderMailboxesView(main) {
       const g = groupOf(m);
       if (S.mbFilter !== '' && g !== S.mbFilter) continue;
       const statusTag = m.status === 'ok' ? '<span class="tag ok">连接成功</span>' : (m.status === 'error' ? '<span class="tag fail">连接失败</span>' : '<span class="tag none">未测试</span>');
-      h += '<tr><td class="email"><strong>' + esc(m.email) + '</strong>' + (m.kind && m.kind !== 'imap' ? ' <span class="tag ok">' + esc(m.kind) + '</span>' : '') + (m.address && m.address !== m.email ? '<br><span class="muted">' + esc(m.address) + '</span>' : '') + '</td>'
+      const isApi = m.kind && m.kind !== 'imap';
+      const kindLabel = m.kind === 'henna' ? 'Henna' : (m.kind === 'cloudmail' ? 'Cloud Mail' : m.kind);
+      h += '<tr><td class="email"><strong>' + esc(m.email) + '</strong>' + (isApi ? ' <span class="tag ok">' + esc(kindLabel) + '</span>' : '') + (m.address && m.address !== m.email ? '<br><span class="muted">' + esc(m.address) + '</span>' : '') + '</td>'
         + '<td><span class="tag gtag-cell" data-mb="' + esc(m.id) + '" style="' + groupTagStyle(g) + ';cursor:pointer" title="点一下改分组">' + esc(g) + '</span></td>'
-        + '<td>密码 / 授权码</td>'
-        + '<td class="muted">' + esc(m.imap_host || '') + ':' + (m.imap_port || '') + '</td>'
+        + '<td>' + (isApi ? '面板账号' : '密码 / 授权码') + '</td>'
+        + '<td class="muted">' + (isApi ? esc(String(m.panel_url || '').replace(/^https?:\/\//, '')) : esc(m.imap_host || '') + ':' + (m.imap_port || '')) + '</td>'
         + '<td class="err">' + statusTag + '<br><button class="btn ghost sm" data-test="' + esc(m.id) + '" style="margin-top:6px">测试连接</button></td>'
         + '<td style="white-space:nowrap"><button class="btn ghost sm" data-edit="' + esc(m.id) + '">编辑</button> <button class="btn danger sm" data-del="' + esc(m.id) + '">删除</button></td></tr>';
     }
@@ -1368,19 +1385,28 @@ function renderMailboxesView(main) {
 
 // 添加邮箱独立页（照 S00 的做法：单独一页，不嵌在管理页下面）。
 // 新加和编辑共用一张表单：MB_EDIT_ID 为空是新加，不为空是改登录方式 / 凭据。
+// 邮箱类型三选：普通邮箱走 IMAP/SMTP；Henna / Cloud Mail 域名邮箱没有 IMAP/SMTP，
+// 走面板 HTTP 接口，只填面板地址 + 登录账号 + 面板密码。
 function mbFormHtml(order, isEdit) {
   return '<div class="card"><h2 id="mbFormTitle">' + (isEdit ? '修改登录方式 / 凭据' : '添加邮箱') + '</h2>'
-    + '<p class="muted">先选登录方式，再填凭据。两种方式都支持；哪个能登上，取决于邮箱厂商那边的规则，不是这个页面说了算。保存时先测连接，通了才存。授权码粘贴时带了空格会自动去掉。</p>'
+    + '<p class="muted">先选邮箱类型，再填凭据。保存时先测连接，通了才存。授权码粘贴时带了空格会自动去掉。</p>'
     + '<div id="mbFormErr"></div>'
     + '<form id="mbForm" autocomplete="off">'
+    + '<label>邮箱类型</label><span class="seg" id="mb_kind_seg"><button type="button" data-kind="imap" class="on">普通邮箱（IMAP）</button><button type="button" data-kind="henna">Henna 域名邮箱</button><button type="button" data-kind="cloudmail">Cloud Mail 域名邮箱</button></span>'
     + '<label>邮箱地址</label><input type="email" id="mb_email" placeholder="如 xxx@qq.com" autocomplete="off" required>'
-    + '<label>厂商 / 域名（选了自动填服务器，也可手动改）</label><select id="mb_provider">'
+    + '<div id="mb_api_sec" style="display:none">'
+    + '<label>面板地址</label><input type="text" id="mb_panel_url" placeholder="https://你的域名邮箱面板地址" autocomplete="off">'
+    + '<label>登录账号</label><input type="text" id="mb_panel_login" placeholder="登面板用的账号（一般是邮箱地址）" autocomplete="off">'
+    + '<label>面板登录密码</label>'
+    + '<div style="display:flex;gap:8px;align-items:center"><input type="password" id="mb_panel_pass" placeholder="登面板用的密码" autocomplete="new-password" style="flex:1"><button type="button" class="btn ghost sm" id="mb_panel_pass_toggle" style="white-space:nowrap">👁 显示</button></div>'
+    + '<p class="muted">域名邮箱没有 IMAP/SMTP，邮件存在面板自己的数据库里，这里走面板的 HTTP 接口收发。一条记录只管一个邮箱地址。</p>'
+    + '</div>'
+    + '<div id="mb_imap_sec">'
+    + '<label id="mb_provider_label">厂商 / 域名（选了自动填服务器，也可手动改）</label><div id="mb_provider_wrap"><select id="mb_provider">'
     + '<option value="">按邮箱地址自动识别</option>'
     + [...new Map(Object.entries(allPresets()).map(([d, p]) => [p.label, d]))].map(([label, d]) => '<option value="' + d + '">' + esc(label) + '</option>').join('')
-    + '<option value="custom">自定义服务器</option></select>'
-    + '<div id="mb_provider_name_wrap" style="display:none"><label>厂商名称（自己起一个，保存后下次自动记住）</label><input type="text" id="mb_provider_name" placeholder="如 我的企业邮" autocomplete="off"></div>'
-    + '<label>分组</label><div class="row"><div><select id="mb_group">' + order.map((g) => '<option value="' + esc(g) + '">' + esc(g) + '</option>').join('') + '<option value="__new__">新建分组…</option></select></div>'
-    + '<div id="mb_newgroup_wrap" style="display:none"><input type="text" id="mb_newgroup" placeholder="新分组名"></div></div>'
+    + '<option value="custom">自定义服务器</option></select><input type="text" id="mb_provider_name" placeholder="厂商名称，如 我的企业邮" autocomplete="off" style="display:none;width:100%"></div>'
+    + '<div id="mb_provider_back" style="display:none;margin-top:6px"><a href="#" id="mb_provider_back_link" style="font-size:13px">‹ 返回选择厂商</a></div>'
     + '<label>登录方式（二选一）</label>'
     + '<div style="display:flex;gap:10px;flex-wrap:wrap">'
     + '<label data-method="authcode" style="flex:1;min-width:220px;border:1px solid var(--accent);background:var(--accent-pale);border-radius:8px;padding:10px 12px;cursor:pointer;display:block"><input type="radio" name="mb_method" value="authcode" checked> <b>授权码登入（推荐）</b><br><small class="muted">QQ 只有这一种能用；Gmail / Outlook 开了两步验证后也要用它。去邮箱官网生成授权码 / 应用专用密码。</small></label>'
@@ -1399,6 +1425,9 @@ function mbFormHtml(order, isEdit) {
     + '<details class="mb-adv"><summary>高级设置：IMAP 登录账号（一般不用展开）</summary>'
     + '<label>IMAP 登录账号 <span class="kv-note">留空就用邮箱地址。极少数邮箱的登录名和邮箱地址不一样（比如用工号 / 单独账号登录的企业邮），才需要填；要填就填完整邮箱地址，不能只填 QQ 号（QQ 会报 Please input email address）</span></label><input type="text" id="mb_login_user" placeholder="默认和邮箱地址一样" autocomplete="off">'
     + '</details>'
+    + '</div>'
+    + '<label>分组</label><div class="row"><div><select id="mb_group">' + order.map((g) => '<option value="' + esc(g) + '">' + esc(g) + '</option>').join('') + '<option value="__new__">新建分组…</option></select></div>'
+    + '<div id="mb_newgroup_wrap" style="display:none"><input type="text" id="mb_newgroup" placeholder="新分组名"></div></div>'
     + '<p style="margin-top:16px"><button class="btn" id="mbSaveBtn">' + (isEdit ? '保存修改' : '保存邮箱') + '</button> <button type="button" class="btn ghost" id="mbCancelBtn">' + (isEdit ? '取消编辑' : '返回邮箱管理') + '</button></p>'
     + '</form></div>';
 }
@@ -1431,25 +1460,38 @@ function openMbEditor(mbId) {
     gsel.appendChild(o);
   }
   gsel.value = g;
-  // 编辑时厂商下拉也按邮箱域名显示对应厂商（未知域名切自定义并显示厂商名称框）
-  const domain = ((mb.email || '').split('@')[1] || '').toLowerCase();
-  if (allPresets()[domain]) {
-    $('#mb_provider').value = domain;
-    $('#mb_provider_name_wrap').style.display = 'none';
-  } else if (domain) {
-    $('#mb_provider').value = 'custom';
-    $('#mb_provider_name_wrap').style.display = '';
+  const kind = (mb.kind === 'henna' || mb.kind === 'cloudmail') ? mb.kind : 'imap';
+  syncKindUI(kind);
+  if (kind !== 'imap') {
+    // 域名邮箱：填面板地址 + 登录账号，密码留空不改。
+    $('#mb_panel_url').value = mb.panel_url || '';
+    $('#mb_panel_login').value = mb.panel_login || mb.login_user || '';
+    $('#mb_panel_pass').value = '';
+    $('#mb_panel_pass').required = false;
+    $('#mb_panel_pass').placeholder = '留空不改';
+  } else {
+    // 编辑时厂商下拉也按邮箱域名显示对应厂商（未知域名切自定义，原位改厂商名）
+    const domain = ((mb.email || '').split('@')[1] || '').toLowerCase();
+    if (allPresets()[domain]) {
+      $('#mb_provider').value = domain;
+      setProviderMode('select');
+    } else if (domain) {
+      $('#mb_provider').value = 'custom';
+      const prov = (S.providers || []).find((p) => p.domain === domain);
+      $('#mb_provider_name').value = prov ? prov.label : '';
+      setProviderMode('custom');
+    }
+    // 这条记录本来就有单独的登录账号时，把高级设置展开，免得看不见。
+    const adv = $('#mb_login_user').closest('details');
+    if (adv) adv.open = !!(mb.login_user && mb.login_user !== mb.email);
+    $('#mb_imap_host').value = mb.imap_host || '';
+    $('#mb_imap_port').value = mb.imap_port || 993;
+    $('#mb_imap_enc').value = mb.imap_enc || 'ssl';
+    $('#mb_smtp_host').value = mb.smtp_host || '';
+    $('#mb_smtp_port').value = mb.smtp_port || 587;
+    $('#mb_smtp_enc').value = mb.smtp_enc || 'tls';
+    $('#mb_login_user').value = (mb.login_user && mb.login_user !== mb.email) ? mb.login_user : '';
   }
-  // 这条记录本来就有单独的登录账号时，把高级设置展开，免得看不见。
-  const adv = $('#mb_login_user').closest('details');
-  if (adv) adv.open = !!(mb.login_user && mb.login_user !== mb.email);
-  $('#mb_imap_host').value = mb.imap_host || '';
-  $('#mb_imap_port').value = mb.imap_port || 993;
-  $('#mb_imap_enc').value = mb.imap_enc || 'ssl';
-  $('#mb_smtp_host').value = mb.smtp_host || '';
-  $('#mb_smtp_port').value = mb.smtp_port || 587;
-  $('#mb_smtp_enc').value = mb.smtp_enc || 'tls';
-  $('#mb_login_user').value = (mb.login_user && mb.login_user !== mb.email) ? mb.login_user : '';
   $('#mbSaveBtn').textContent = '保存修改';
   const cancelBtn = $('#mbCancelBtn');
   if (cancelBtn) { cancelBtn.style.display = ''; cancelBtn.textContent = '取消编辑'; }
@@ -1461,6 +1503,71 @@ function normMbPass(p) {
   const t = String(p || '').trim();
   const squashed = t.replace(/\s+/g, '');
   return /^[A-Za-z0-9]{16}$/.test(squashed) ? squashed : t;
+}
+
+// 域名邮箱的默认面板地址（添加页选类型时自动填好，自己改过的地址不覆盖）。
+const API_PANELS = { henna: 'https://email.070605.xyz/', cloudmail: 'https://cfmail.151819.xyz/' };
+
+// 当前表单选的邮箱类型（imap / henna / cloudmail）。
+function mbKind() {
+  const b = document.querySelector('#mb_kind_seg button.on');
+  return b ? b.getAttribute('data-kind') : 'imap';
+}
+
+// 邮箱类型切换：域名邮箱显示面板地址 + 登录账号 + 面板密码，藏起 IMAP 那套；
+// 普通邮箱反过来。面板地址默认填好，换类型时也跟着换（自己改过的地址不覆盖）。
+function syncKindUI(kind) {
+  $$('#mb_kind_seg button').forEach((b) => b.classList.toggle('on', b.getAttribute('data-kind') === kind));
+  const isApi = kind !== 'imap';
+  const apiSec = $('#mb_api_sec');
+  const imapSec = $('#mb_imap_sec');
+  if (apiSec) apiSec.style.display = isApi ? '' : 'none';
+  if (imapSec) imapSec.style.display = isApi ? 'none' : '';
+  const mp = $('#mb_pass');
+  const pp = $('#mb_panel_pass');
+  if (isApi) {
+    const def = API_PANELS[kind] || '';
+    const inp = $('#mb_panel_url');
+    if (inp) {
+      const otherDef = kind === 'henna' ? API_PANELS.cloudmail : API_PANELS.henna;
+      if (!inp.value.trim() || inp.value.trim() === otherDef) inp.value = def;
+    }
+    if (pp) pp.required = !MB_EDIT_ID;
+    if (mp) mp.required = false;
+  } else {
+    if (pp) pp.required = false;
+    if (mp) mp.required = !MB_EDIT_ID;
+  }
+}
+
+// 厂商下拉 / 厂商名原位切换：选“自定义服务器”后，下拉直接变成厂商名输入框，
+// 名字就在原来下拉的地方填，不再下方另弹一个输入栏。
+function setProviderMode(mode) {
+  const sel = $('#mb_provider');
+  const name = $('#mb_provider_name');
+  const back = $('#mb_provider_back');
+  const label = $('#mb_provider_label');
+  if (!sel || !name) return;
+  if (mode === 'custom') {
+    sel.style.display = 'none';
+    name.style.display = '';
+    if (back) back.style.display = '';
+    if (label) label.textContent = '厂商名称（自己起一个，保存后下次自动记住）';
+    name.focus();
+  } else {
+    sel.style.display = '';
+    name.style.display = 'none';
+    if (back) back.style.display = 'none';
+    if (label) label.textContent = '厂商 / 域名（选了自动填服务器，也可手动改）';
+  }
+}
+
+// 列表/读信里删除的确认文案：Henna 没有已删除，删了找不回来，要说清楚。
+function delConfirmText() {
+  const mb = curMailbox();
+  if (mb && mb.kind === 'henna') return '删除这封邮件？Henna 没有已删除，删了找不回来。';
+  if (mb && mb.kind === 'cloudmail') return '删除这封邮件？';
+  return '删除这封邮件？（有已删除文件夹就移过去，没有就直接删）';
 }
 
 function wireMbForm() {
@@ -1476,31 +1583,41 @@ function wireMbForm() {
     $('#mb_smtp_enc').value = p.smtp_enc;
   };
   const applyEmailPreset = (onBlur) => {
+    if (mbKind() !== 'imap') return; // 域名邮箱不走厂商预设
     const email = $('#mb_email').value.trim();
     const domain = (email.split('@')[1] || '').toLowerCase();
     const preset = allPresets()[domain];
     if (preset) {
       $('#mb_provider').value = domain;
       fillServers(preset);
-      $('#mb_provider_name_wrap').style.display = 'none';
+      setProviderMode('select');
     } else if (onBlur && domain) {
       // 离框时这个域名还没有预设：切到自定义服务器，填个厂商名就能记住，下次不用再填。
       $('#mb_provider').value = 'custom';
-      $('#mb_provider_name_wrap').style.display = '';
+      setProviderMode('custom');
     }
   };
   $('#mb_email').addEventListener('input', () => applyEmailPreset(false));
   $('#mb_email').addEventListener('change', () => applyEmailPreset(true));
   $('#mb_provider').addEventListener('change', () => {
     const v = $('#mb_provider').value;
-    if (v === 'custom') { $('#mb_provider_name_wrap').style.display = ''; return; }
-    $('#mb_provider_name_wrap').style.display = 'none';
+    if (v === 'custom') { setProviderMode('custom'); return; }
+    setProviderMode('select');
     if (v) fillServers(allPresets()[v]);
   });
+  $('#mb_provider_back_link').addEventListener('click', (e) => {
+    e.preventDefault();
+    $('#mb_provider').value = '';
+    setProviderMode('select');
+    applyEmailPreset(false);
+  });
+  // 邮箱类型三选：切到域名邮箱就显示面板地址 + 登录账号 + 面板密码。
+  $$('#mb_kind_seg button').forEach((b) => b.addEventListener('click', () => syncKindUI(b.getAttribute('data-kind'))));
+  syncKindUI('imap');
   $('#mb_group').addEventListener('change', () => {
     const v = $('#mb_group').value;
     $('#mb_newgroup_wrap').style.display = v === '__new__' ? '' : 'none';
-    if (v && v !== '__new__') {
+    if (v && v !== '__new__' && mbKind() === 'imap') {
       // 选一个已有分组，服务器按这个分组里邮箱用的那套自动填
       const first = S.mailboxes.find((m) => groupOf(m) === v);
       if (first) fillServers({ imap_host: first.imap_host, imap_port: first.imap_port, imap_enc: first.imap_enc, smtp_host: first.smtp_host, smtp_port: first.smtp_port, smtp_enc: first.smtp_enc });
@@ -1531,6 +1648,12 @@ function wireMbForm() {
     inp.type = show ? 'text' : 'password';
     $('#mb_pass_toggle').textContent = show ? '🙈 隐藏' : '👁 显示';
   });
+  $('#mb_panel_pass_toggle').addEventListener('click', () => {
+    const inp = $('#mb_panel_pass');
+    const show = inp.type === 'password';
+    inp.type = show ? 'text' : 'password';
+    $('#mb_panel_pass_toggle').textContent = show ? '🙈 隐藏' : '👁 显示';
+  });
   $('#mbCancelBtn').addEventListener('click', () => {
     MB_EDIT_ID = '';
     S.view = 'mailboxes';
@@ -1558,6 +1681,56 @@ function wireMbForm() {
     if (errBox) errBox.innerHTML = '';
     const btn = $('#mbSaveBtn');
     const email = $('#mb_email').value.trim();
+    const kind = mbKind();
+    let group = $('#mb_group').value;
+    if (group === '__new__') group = $('#mb_newgroup').value.trim();
+    const flashErr = (msg) => { errBox.innerHTML = '<div class="flash err" title="点一下去掉这条提示">' + esc(msg) + ' <span style="float:right">✕</span></div>'; };
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { flashErr('邮箱地址格式不对。'); return; }
+    // ---------- 域名邮箱（Henna / Cloud Mail）：面板地址 + 登录账号 + 面板密码，不填 IMAP/SMTP ----------
+    if (kind !== 'imap') {
+      const panelUrl = $('#mb_panel_url').value.trim();
+      const panelLogin = $('#mb_panel_login').value.trim();
+      const panelPass = $('#mb_panel_pass').value.trim();
+      if (!panelUrl) { flashErr('面板地址没填。'); return; }
+      if (!panelLogin) { flashErr('登录账号没填。'); return; }
+      const body = { email, group_name: group, kind, panel_url: panelUrl, panel_login: panelLogin };
+      if (MB_EDIT_ID) {
+        if (panelPass) body.password = panelPass;
+        btn.disabled = true;
+        btn.textContent = '保存中…';
+        try {
+          await apiOk('/api/mailboxes/' + encodeURIComponent(MB_EDIT_ID), { method: 'PUT', body: JSON.stringify(body) });
+          toast('已保存。');
+          MB_EDIT_ID = '';
+          await loadMailboxes();
+          S.view = 'mailboxes';
+          renderSidebar();
+          renderMain();
+        } catch (err) {
+          flashErr(err.message || '保存失败。');
+          btn.disabled = false;
+          btn.textContent = '保存修改';
+        }
+        return;
+      }
+      if (!panelPass) { flashErr('面板登录密码没填。'); return; }
+      body.password = panelPass;
+      btn.disabled = true;
+      btn.textContent = '正在测试连接…';
+      try {
+        const d = await postJson('/api/mailboxes', body);
+        if (!d.ok) throw new Error(d.err || '添加失败。');
+        toast('已添加：' + email + '，可以继续加下一个。');
+        await loadMailboxes();
+        renderSidebar();
+        renderAddMailboxView($('#main'));
+      } catch (err) {
+        flashErr(err.message || '添加失败。');
+        btn.disabled = false;
+        btn.textContent = '保存邮箱';
+      }
+      return;
+    }
     const method = (document.querySelector('input[name="mb_method"]:checked') || {}).value || 'authcode';
     const pass = method === 'password' ? $('#mb_pass').value.trim() : normMbPass($('#mb_pass').value);
     // 登录账号必须是完整邮箱地址：只填 QQ 号的话，QQ 直接报 Please input email address。
@@ -1566,8 +1739,6 @@ function wireMbForm() {
       errBox.innerHTML = '<div class="flash err" title="点一下去掉这条提示">登录账号要填完整邮箱地址，如 ' + esc(email || '53424209@qq.com') + '，不能只填 QQ 号。QQ 那边就是这么报的：Please input email address（请填邮箱地址）。 <span style="float:right">✕</span></div>';
       return;
     }
-    let group = $('#mb_group').value;
-    if (group === '__new__') group = $('#mb_newgroup').value.trim();
     const servers = {
       imap_host: $('#mb_imap_host').value.trim(),
       imap_port: parseInt($('#mb_imap_port').value, 10) || 993,
