@@ -129,6 +129,10 @@ const PRESETS = {
   'yeah.net': { imap_host: 'imap.yeah.net', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.yeah.net', smtp_port: 465, smtp_enc: 'ssl' },
   'gmail.com': { imap_host: 'imap.gmail.com', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.gmail.com', smtp_port: 587, smtp_enc: 'tls' },
   'v.cd': { imap_host: 'smtp.mail.v.cd', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.mail.v.cd', smtp_port: 465, smtp_enc: 'ssl' },
+  'mail.ru': { imap_host: 'imap.mail.ru', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.mail.ru', smtp_port: 465, smtp_enc: 'ssl' },
+  'bk.ru': { imap_host: 'imap.mail.ru', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.mail.ru', smtp_port: 465, smtp_enc: 'ssl' },
+  'inbox.ru': { imap_host: 'imap.mail.ru', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.mail.ru', smtp_port: 465, smtp_enc: 'ssl' },
+  'list.ru': { imap_host: 'imap.mail.ru', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.mail.ru', smtp_port: 465, smtp_enc: 'ssl' },
 };
 
 function json(data, status = 200, extraHeaders = {}) {

@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v27';
+const APP_VERSION = 'v28';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -1170,6 +1170,10 @@ const MB_PRESETS = {
   'yeah.net': { imap_host: 'imap.yeah.net', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.yeah.net', smtp_port: 465, smtp_enc: 'ssl', label: 'Yeah邮箱' },
   'gmail.com': { imap_host: 'imap.gmail.com', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.gmail.com', smtp_port: 587, smtp_enc: 'tls', label: 'Gmail' },
   'v.cd': { imap_host: 'smtp.mail.v.cd', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.mail.v.cd', smtp_port: 465, smtp_enc: 'ssl', label: 'DNSHE' },
+  'mail.ru': { imap_host: 'imap.mail.ru', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.mail.ru', smtp_port: 465, smtp_enc: 'ssl', label: 'Mail.ru' },
+  'bk.ru': { imap_host: 'imap.mail.ru', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.mail.ru', smtp_port: 465, smtp_enc: 'ssl', label: 'Mail.ru' },
+  'inbox.ru': { imap_host: 'imap.mail.ru', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.mail.ru', smtp_port: 465, smtp_enc: 'ssl', label: 'Mail.ru' },
+  'list.ru': { imap_host: 'imap.mail.ru', imap_port: 993, imap_enc: 'ssl', smtp_host: 'smtp.mail.ru', smtp_port: 465, smtp_enc: 'ssl', label: 'Mail.ru' },
 };
 let MB_EDIT_ID = '';
 
