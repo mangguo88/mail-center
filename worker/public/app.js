@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v36';
+const APP_VERSION = 'v37';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -1582,9 +1582,14 @@ function syncKindUI(kind) {
     if (isApi) {
       if (actions) actions.insertAdjacentElement('beforebegin', grpWrap);
       if (!MB_EDIT_ID) {
-        const want = kind === 'henna' ? 'henna域名邮箱' : 'Cloud Mail域名邮箱';
+        // 域名邮箱新建时，分组默认配到它对应的域名邮箱分组：按名字里含 henna /
+        // cloud 来认，分组改过名也认得出来；编辑时不动已存的分组。
+        const needle = kind === 'henna' ? 'henna' : 'cloud';
         const sel = $('#mb_group');
-        if (sel && Array.from(sel.options).some((o) => o.value === want)) sel.value = want;
+        if (sel) {
+          const opt = Array.from(sel.options).find((o) => o.value.toLowerCase().indexOf(needle) !== -1);
+          if (opt) sel.value = opt.value;
+        }
       }
     } else {
       const back = $('#mb_provider_back');
