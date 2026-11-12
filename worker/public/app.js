@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v37';
+const APP_VERSION = 'v38';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -1555,6 +1555,24 @@ function mbKind() {
   return b ? b.getAttribute('data-kind') : 'imap';
 }
 
+// 按邮箱地址自动识别分组（和厂商识别同一个路数）：先试厂商名（如 QQ邮箱、
+// Gmail、DNSHE），再试域名本身（如 163.com、mail.ru），大小写不敏感；
+// 哪个分组名对上就用哪个，对不上就不动。
+function detectGroupForEmail(email) {
+  const domain = (String(email || '').split('@')[1] || '').toLowerCase().trim();
+  if (!domain) return '';
+  const preset = allPresets()[domain];
+  const cands = [];
+  if (preset && preset.label) cands.push(preset.label);
+  cands.push(domain);
+  const names = allGroups().map((x) => x.name);
+  for (const c of cands) {
+    const hit = names.find((g) => g.toLowerCase() === String(c).toLowerCase());
+    if (hit) return hit;
+  }
+  return '';
+}
+
 // 邮箱类型切换：域名邮箱显示面板地址 + 登录账号 + 面板密码，藏起 IMAP 那套；
 // 普通邮箱反过来。面板地址默认填好，换类型时也跟着换（自己改过的地址不覆盖）。
 // 域名邮箱时“邮箱地址”栏移到面板登录密码下面；普通邮箱时放回类型选择下面。
@@ -1594,6 +1612,15 @@ function syncKindUI(kind) {
     } else {
       const back = $('#mb_provider_back');
       if (back) back.insertAdjacentElement('afterend', grpWrap);
+      // 切回普通邮箱时，分组按邮箱地址重新识别一次（免得还停在刚才域名邮箱
+      // 那个分组上）；编辑时不动已存的分组。
+      if (!MB_EDIT_ID) {
+        const g = detectGroupForEmail($('#mb_email') ? $('#mb_email').value : '');
+        if (g) {
+          const sel = $('#mb_group');
+          if (sel && Array.from(sel.options).some((o) => o.value === g)) sel.value = g;
+        }
+      }
     }
   }
   const mp = $('#mb_pass');
@@ -1669,23 +1696,6 @@ function wireMbForm() {
       $('#mb_provider').value = 'custom';
       setProviderMode('custom');
     }
-  };
-  // 按邮箱地址自动识别分组（和厂商识别同一个路数）：先试厂商名（如 QQ邮箱、
-  // Gmail、DNSHE），再试域名本身（如 163.com、mail.ru），大小写不敏感；
-  // 哪个分组名对上就用哪个，对不上就不动。
-  const detectGroupForEmail = (email) => {
-    const domain = (String(email || '').split('@')[1] || '').toLowerCase().trim();
-    if (!domain) return '';
-    const preset = allPresets()[domain];
-    const cands = [];
-    if (preset && preset.label) cands.push(preset.label);
-    cands.push(domain);
-    const names = allGroups().map((x) => x.name);
-    for (const c of cands) {
-      const hit = names.find((g) => g.toLowerCase() === String(c).toLowerCase());
-      if (hit) return hit;
-    }
-    return '';
   };
   const autoGroup = () => {
     if (mbKind() !== 'imap') return; // 域名邮箱的分组由类型切换时定
