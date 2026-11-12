@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v35';
+const APP_VERSION = 'v36';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -1467,9 +1467,9 @@ function mbFormHtml(order, isEdit) {
     + '<label>IMAP 登录账号 <span class="kv-note">留空就用邮箱地址。极少数邮箱的登录名和邮箱地址不一样（比如用工号 / 单独账号登录的企业邮），才需要填；要填就填完整邮箱地址，不能只填 QQ 号（QQ 会报 Please input email address）</span></label><input type="text" id="mb_login_user" placeholder="默认和邮箱地址一样" autocomplete="off">'
     + '</details>'
     + '</div>'
-    + '<label>分组</label><div class="row"><div><select id="mb_group">' + order.map((g) => '<option value="' + esc(g) + '">' + esc(g) + '</option>').join('') + '<option value="__new__">新建分组…</option></select></div>'
-    + '<div id="mb_newgroup_wrap" style="display:none"><input type="text" id="mb_newgroup" placeholder="新分组名"></div></div>'
-    + '<p style="margin-top:16px"><button class="btn" id="mbSaveBtn">' + (isEdit ? '保存修改' : '保存邮箱') + '</button> <button type="button" class="btn ghost" id="mbCancelBtn">' + (isEdit ? '取消编辑' : '返回邮箱管理') + '</button></p>'
+    + '<div id="mb_group_wrap"><label>分组</label><div class="row"><div><select id="mb_group">' + order.map((g) => '<option value="' + esc(g) + '">' + esc(g) + '</option>').join('') + '<option value="__new__">新建分组…</option></select></div>'
+    + '<div id="mb_newgroup_wrap" style="display:none"><input type="text" id="mb_newgroup" placeholder="新分组名"></div></div></div>'
+    + '<p id="mb_actions" style="margin-top:16px"><button class="btn" id="mbSaveBtn">' + (isEdit ? '保存修改' : '保存邮箱') + '</button> <button type="button" class="btn ghost" id="mbCancelBtn">' + (isEdit ? '取消编辑' : '返回邮箱管理') + '</button></p>'
     + '</form></div>';
 }
 
@@ -1574,6 +1574,23 @@ function syncKindUI(kind) {
       apiSec.parentElement.insertBefore(emWrap, apiSec);
     }
   }
+  // 分组栏跟着邮箱类型走：普通邮箱放厂商/域名下面，域名邮箱放回保存按钮上面；
+  // 域名邮箱新建时，分组默认配到它对应的域名邮箱分组（编辑时不动已存的分组）。
+  const grpWrap = $('#mb_group_wrap');
+  const actions = $('#mb_actions');
+  if (grpWrap) {
+    if (isApi) {
+      if (actions) actions.insertAdjacentElement('beforebegin', grpWrap);
+      if (!MB_EDIT_ID) {
+        const want = kind === 'henna' ? 'henna域名邮箱' : 'Cloud Mail域名邮箱';
+        const sel = $('#mb_group');
+        if (sel && Array.from(sel.options).some((o) => o.value === want)) sel.value = want;
+      }
+    } else {
+      const back = $('#mb_provider_back');
+      if (back) back.insertAdjacentElement('afterend', grpWrap);
+    }
+  }
   const mp = $('#mb_pass');
   const pp = $('#mb_panel_pass');
   if (isApi) {
@@ -1648,8 +1665,32 @@ function wireMbForm() {
       setProviderMode('custom');
     }
   };
-  $('#mb_email').addEventListener('input', () => applyEmailPreset(false));
-  $('#mb_email').addEventListener('change', () => applyEmailPreset(true));
+  // 按邮箱地址自动识别分组（和厂商识别同一个路数）：先试厂商名（如 QQ邮箱、
+  // Gmail、DNSHE），再试域名本身（如 163.com、mail.ru），大小写不敏感；
+  // 哪个分组名对上就用哪个，对不上就不动。
+  const detectGroupForEmail = (email) => {
+    const domain = (String(email || '').split('@')[1] || '').toLowerCase().trim();
+    if (!domain) return '';
+    const preset = allPresets()[domain];
+    const cands = [];
+    if (preset && preset.label) cands.push(preset.label);
+    cands.push(domain);
+    const names = allGroups().map((x) => x.name);
+    for (const c of cands) {
+      const hit = names.find((g) => g.toLowerCase() === String(c).toLowerCase());
+      if (hit) return hit;
+    }
+    return '';
+  };
+  const autoGroup = () => {
+    if (mbKind() !== 'imap') return; // 域名邮箱的分组由类型切换时定
+    const g = detectGroupForEmail($('#mb_email').value);
+    if (!g) return;
+    const sel = $('#mb_group');
+    if (sel && Array.from(sel.options).some((o) => o.value === g)) sel.value = g;
+  };
+  $('#mb_email').addEventListener('input', () => { applyEmailPreset(false); autoGroup(); });
+  $('#mb_email').addEventListener('change', () => { applyEmailPreset(true); autoGroup(); });
   $('#mb_provider').addEventListener('change', () => {
     const v = $('#mb_provider').value;
     if (v === 'custom') { setProviderMode('custom'); return; }
