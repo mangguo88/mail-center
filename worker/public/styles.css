@@ -4,7 +4,7 @@
 body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;color:#1c1917;background:#fafaf9;font-size:15px}
 a{color:#15803d;text-decoration:none}
 .boot{max-width:420px;margin:120px auto;text-align:center;color:#78716c}
-.top{height:56px;background:#fff;border-bottom:1px solid #e7e5e4;display:flex;align-items:center;gap:12px;padding:0 20px}
+.top{height:56px;background:#fff;border-bottom:1px solid #e7e5e4;display:flex;align-items:center;gap:12px;padding:0 20px;position:sticky;top:0;z-index:850}
 .logo{width:32px;height:32px;border-radius:8px;background:var(--accent);color:#fff;display:grid;place-items:center;font-weight:700}
 .top h1{font-size:17px;margin:0}
 .top .who{margin-left:auto;color:#78716c;font-size:13px;display:flex;align-items:center;gap:10px}
@@ -16,8 +16,8 @@ a{color:#15803d;text-decoration:none}
 .btn.danger:hover{background:#fef2f2}
 .btn:disabled{opacity:.55;cursor:default}
 .btn.sm{padding:4px 10px;font-size:13px}
-.wrap{display:flex;min-height:calc(100vh - 56px)}
-.side{width:240px;min-width:200px;max-width:280px;background:#fff;border-right:1px solid #e7e5e4;padding:16px 12px;flex:0 0 auto;position:relative;transition:width .15s ease}
+.wrap{display:flex;height:calc(100vh - 56px);overflow:hidden}
+.side{width:240px;min-width:200px;max-width:280px;background:#fff;border-right:1px solid #e7e5e4;padding:16px 12px;flex:0 0 auto;position:relative;transition:width .15s ease;overflow-y:auto;min-height:0}
 .side a{display:block;padding:10px 12px;border-radius:8px;color:#44403c;margin-bottom:4px}
 .side .ico{color:var(--accent)}
 .side .ico-amber{color:#ea580c}
@@ -42,7 +42,7 @@ a{color:#15803d;text-decoration:none}
 .wrap.side-collapsed .side a.mb-ico{display:block}
 .side a.compose-btn:hover{background:#15803d}
 .side a.compose-btn.on{background:#15803d;color:#fff}
-.main{flex:1;padding:12px 8px;max-width:1180px;min-width:0;display:flex;flex-direction:column}
+.main{flex:1;padding:12px 8px;max-width:1180px;min-width:0;min-height:0;display:flex;flex-direction:column;overflow-y:auto}
 .card{background:#fff;border:1px solid #e7e5e4;border-radius:12px;padding:16px 12px;margin-bottom:16px}
 .card h2{margin:0 0 8px;font-size:17px}
 .muted{color:#78716c;font-size:13px;line-height:1.7}
@@ -67,13 +67,15 @@ th,td{text-align:left;padding:10px 8px;border-bottom:1px solid #f5f5f4;vertical-
 .tablewrap td.email{max-width:230px;overflow:hidden;text-overflow:ellipsis}
 .tablewrap td.err{white-space:normal;min-width:150px}
 .tablewrap tr.dragging{opacity:.45}
-.panes{display:flex;gap:0;align-items:stretch;flex:1}
-.pane-mid{flex:0 0 220px;width:220px;min-width:0;margin-left:4px}
+.panes{display:flex;gap:0;align-items:stretch;flex:1;min-height:0}
+.pane-mid{flex:0 0 220px;width:220px;min-width:0;min-height:0;margin-left:4px;display:flex;flex-direction:column}
+.pane-mid .card{flex:1;min-height:0;display:flex;flex-direction:column;margin-bottom:0}
+.pane-mid .msglist{flex:1;overflow-y:auto;min-height:0}
 .resizer{width:10px;flex:0 0 10px;cursor:col-resize;align-self:stretch;touch-action:none}
 .resizer::after{content:'';display:block;width:2px;height:100%;margin:0 auto;background:#e7e5e4}
 .resizer:hover::after,.resizer.drag::after{background:var(--accent)}
-.pane-right{flex:1;min-width:0}
-.pane-right .card{position:sticky;top:12px}
+.pane-right{flex:1;min-width:0;min-height:0;overflow-y:auto}
+.pane-right .card{position:static}
 .mblist{margin-top:4px;padding-top:0;border-top:none}
 .mblist .mblist-h{font-size:15px;color:#44403c;font-weight:700;margin:0 0 4px;padding:10px 12px}
 .mblist>summary.mblist-h{display:flex;justify-content:space-between;align-items:center;cursor:pointer;list-style:none}
@@ -216,7 +218,13 @@ textarea{width:100%;padding:10px 12px;border:1px solid #e7e5e4;border-radius:8px
   body.side-open #sideBackdrop{display:block}
   #sideBackdrop{position:fixed;left:0;right:0;top:56px;bottom:0;background:rgba(0,0,0,.35);z-index:700}
   .side-edge{display:none}
-  .main{padding:10px 8px;max-width:none}
+  .main{padding:10px 8px;max-width:none;overflow:visible}
+  /* 手机上恢复整页滚动：顶栏 sticky 冻结，列表和读信上下排、随整页滚 */
+  .wrap{height:auto;overflow:visible}
+  .pane-mid{display:block}
+  .pane-mid .card{display:block;margin-bottom:16px}
+  .pane-mid .msglist{overflow:visible}
+  .pane-right{overflow:visible}
   /* 手机上忽略桌面记的“收起侧栏”，抽屉里永远完整显示 */
   .wrap.side-collapsed .side{width:280px;min-width:0;max-width:85vw;padding:14px 12px}
   .wrap.side-collapsed .side a{text-align:left;padding:10px 12px}
