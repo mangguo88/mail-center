@@ -13,15 +13,16 @@
 - **Outlook 微软登录**：Outlook 个人邮箱只认 OAuth2，设置页填 Azure 应用的 Client ID / Secret 后，点“用微软账号登录添加”就行，令牌过期自动刷新。
 - **域名邮箱接入，可自己扩展**：没有 IMAP 的自建域名邮箱（Henna、Cloud Mail）走 HTTP API 接进来，一条记录管一个邮箱地址；别人有自己的域名邮箱面板，照着 `manage/adapter-template.php` 写一个适配器、在 `manage/adapters.php` 注册表里加一行就能接进来，不用改主程序（见 [ADAPTERS.md](ADAPTERS.md)）。
 
-## 部署（三选一，代码同一套）
+## 部署
 
 | 方式 | 教程 | 适合 |
 | --- | --- | --- |
-| **GitHub + Cloudflare Containers**（推荐） | [DEPLOY-CF-TUTORIAL.md](DEPLOY-CF-TUTORIAL.md)（一步一步） / [DEPLOY-GITHUB-CF.md](DEPLOY-GITHUB-CF.md)（架构） | 没有服务器的人；Docker 跑 PHP，数据存 R2，约 $6–8/月 |
+| **纯 Cloudflare Worker**（推荐，免费） | [DEPLOY-WORKER-FREE.md](DEPLOY-WORKER-FREE.md)（一步一步，从 Fork 到能用） | 没有服务器的人；纯 Worker + D1 + KV + R2，$0，不用绑卡 |
 | **VPS** | [DEPLOY-VPS.md](DEPLOY-VPS.md) | 有 VPS 的人；纯 PHP 8.0+，Nginx + PHP-FPM |
 | **Serv00** | `manage/README.md` | 免费主机；传 `manage/` 里的文件到网站根目录就行 |
+| GitHub + Cloudflare Containers（已放弃） | [DEPLOY-CF-TUTORIAL.md](DEPLOY-CF-TUTORIAL.md) / [DEPLOY-GITHUB-CF.md](DEPLOY-GITHUB-CF.md) | 旧方案，要付费（约 $6–8/月），不再维护 |
 
-部署完第一次打开按提示设站点密码，再加邮箱就能用。以后改代码：改完 `git push`，GitHub Actions 自动重新部署（CF 方式）或自动推到服务器（VPS/Serv00 方式）。
+部署完第一次打开用 `admin / 123456` 登录（还没设过站点密码时才有效），去设置页改成自己的站点密码，再加邮箱就能用。以后改代码：改完 `git push`，Cloudflare Workers Builds 自动重新部署（Worker 方式）或自动推到服务器（VPS/Serv00 方式）。
 
 ## 部署前要改的三处（只改你自己的值，别的不用动）
 
