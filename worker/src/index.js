@@ -14,7 +14,7 @@ import {
   cacheRead, cacheReadStale, cacheWrite, cacheExpireMailbox, bumpCacheVersion,
   sessionIssue, sessionGet, sessionTouch, sessionRevoke, sessionRevokeOthers,
 } from './db.js';
-import { connectMailbox } from './imap.js';
+import { connectMailbox, imapSinceDate } from './imap.js';
 import { smtpSend, buildSentRaw } from './smtp.js';
 import {
   hennaPanelUrl, hennaTokenFor, hennaTest, hennaFolderMap,
@@ -41,6 +41,7 @@ const REMEMBER_DAYS = [90, 180, 365];
 // 可调配置：从 CF 面板环境变量读（Workers → mail-center → Settings → Variables → Add variable），
 // 没设就用下面的默认值。改面板上的值不用重新部署，刷新页面就生效（发信超时改完下次发信生效）。
 // 变量名：MC_INBOX_LIMIT（每页几封，默认 30）、MC_SMTP_TIMEOUT_MS（发信超时毫秒，默认 60000）、
+// MC_INBOX_DAYS（取信时间范围天数，默认 0 = 不限、只取最新 N 封；30/90/180/365 = 最近 1 个月/3 个月/半年/1 年的全部邮件）、
 // MC_SIDEBAR_W（左栏宽 px，默认 240）、MC_MID_W（收件栏默认宽 px，默认 220）、
 // MC_AUTO_REFRESH_MS（自动刷新间隔毫秒，默认 30000）。
 // 另外两个面板变量：MC_DISPLAY_NAME（设置面板名称，如 芒果邮箱管理中心，不填用数据库里的）、
@@ -62,6 +63,7 @@ function uiConfig(env, settings = {}) {
   // 管理面板里改了就存在 D1，立刻生效；CF 面板上设了同名变量就以 CF 的为准，管理面板里那项会显示“已锁定”。
   return {
     inboxLimit: num(env.MC_INBOX_LIMIT ?? settings.inbox_limit, 30),
+    inboxDays: num(env.MC_INBOX_DAYS ?? settings.inbox_days, 0),
     smtpTimeoutMs: num(env.MC_SMTP_TIMEOUT_MS ?? settings.smtp_timeout_ms, 60000),
     sidebarW: num(env.MC_SIDEBAR_W, 240),
     midW: num(env.MC_MID_W, 220),
@@ -70,6 +72,7 @@ function uiConfig(env, settings = {}) {
     adminUser: str(env.MC_ADMIN_USER).toLowerCase(),
     envLocked: {
       inboxLimit: env.MC_INBOX_LIMIT != null && String(env.MC_INBOX_LIMIT).trim() !== '',
+      inboxDays: env.MC_INBOX_DAYS != null && String(env.MC_INBOX_DAYS).trim() !== '',
       smtpTimeoutMs: env.MC_SMTP_TIMEOUT_MS != null && String(env.MC_SMTP_TIMEOUT_MS).trim() !== '',
       autoRefreshMs: env.MC_AUTO_REFRESH_MS != null && String(env.MC_AUTO_REFRESH_MS).trim() !== '',
     },
@@ -477,6 +480,7 @@ export default {
         cache_ttl: site.cache_ttl,
         auto_refresh_ms: cfg.autoRefreshMs,
         inbox_limit: cfg.inboxLimit,
+        inbox_days: cfg.inboxDays,
         smtp_timeout_ms: cfg.smtpTimeoutMs,
         env_locked: cfg.envLocked,
         tg_enabled: !!site.tg_enabled,
@@ -507,6 +511,8 @@ export default {
       if (ar !== null) tune.auto_refresh_ms = ar;
       const il = tuneInt(body.inbox_limit, 5, 100);
       if (il !== null) tune.inbox_limit = il;
+      const id = tuneInt(body.inbox_days, 0, 365);
+      if (id !== null) tune.inbox_days = id;
       const st = tuneInt(body.smtp_timeout_ms, 10000, 120000);
       if (st !== null) tune.smtp_timeout_ms = st;
       if (Object.keys(tune).length) await saveSettings(env.DB, tune);
@@ -912,8 +918,12 @@ export default {
 function groupOfDb(mb) { return (mb.group_name || '').trim() || '未分组'; }
 
 // IMAP FETCH 回包按 UID 升序，列表统一按 UID 从新到旧排（新邮件在前）
+// 列表按显示的时间（received_at，没有时回落到发信时间）从新到旧排，时间一样按 UID；
+// 这样月份分组也是严格从新到旧（之前只按 UID 排，到达顺序和发信日期不一致时月份会乱序）。
 function sortNewestFirst(list) {
-  if (Array.isArray(list)) list.sort((a, b) => (b.uid || 0) - (a.uid || 0));
+  if (!Array.isArray(list)) return list;
+  const t = (m) => Date.parse((m && (m.received_at || m.date)) || '') || 0;
+  list.sort((a, b) => (t(b) - t(a)) || ((b.uid || 0) - (a.uid || 0)));
   return list;
 }
 
@@ -924,6 +934,23 @@ function sameInboxList(a, b) {
     if (a[i].uid !== b[i].uid || !!a[i].seen !== !!b[i].seen) return false;
   }
   return true;
+}
+
+// 域名邮箱按时间范围取列表：逐页取（每页 50 封，最多 5 页），
+// 取到比截止时间更旧的信就停；最后只留截止时间之后的（日期读不出来的也留着，宁可多取不漏取）。
+async function apiFetchRange(fetchPage, days) {
+  const cutoff = Date.now() - days * 86400000;
+  const out = [];
+  for (let page = 1; page <= 5; page++) {
+    const r = await fetchPage(page, 50);
+    if (r.error) return { error: r.error };
+    if (!r.rows || !r.rows.length) break;
+    out.push(...r.rows);
+    const dates = r.rows.map((x) => Date.parse(x.date || '') || 0).filter((t) => t > 0);
+    if (dates.length && Math.min(...dates) < cutoff) break;
+    if (r.rows.length < 50) break;
+  }
+  return { rows: out.filter((x) => { const t = Date.parse(x.date || '') || 0; return t <= 0 || t >= cutoff; }) };
 }
 
 // 收件箱列表收尾（IMAP 和域名邮箱共用）：沿用旧缓存里的接收时间 received_at，
@@ -992,15 +1019,20 @@ async function finishInbox(env, mb, folderLabel, version, ttl, check, list, tota
         }
         const map = mb.kind === 'henna' ? hennaFolderMap() : mb.kind === 'mangomail' ? mangoFolderMap() : cloudmailFolderMap();
         if (!(folderLabel in map)) return done(err('这个邮箱没有这个文件夹。'));
-        const inboxLimit = (await effectiveConfig(env)).inboxLimit;
-        const r = mb.kind === 'henna'
-          ? await hennaFetchList(mb.panel_url, ctx.token, mb.email, folderLabel, 1, inboxLimit)
+        const cfg = await effectiveConfig(env);
+        const fetchPage = (page, per) => mb.kind === 'henna'
+          ? hennaFetchList(mb.panel_url, ctx.token, mb.email, folderLabel, page, per)
           : mb.kind === 'mangomail'
-            ? await mangoFetchList(mb.panel_url, ctx.token, mb.email, folderLabel, 1, inboxLimit)
-            : await cloudmailFetchList(mb.panel_url, ctx.token, ctx.accountId, mb.email, folderLabel, 1, inboxLimit);
+            ? mangoFetchList(mb.panel_url, ctx.token, mb.email, folderLabel, page, per)
+            : cloudmailFetchList(mb.panel_url, ctx.token, ctx.accountId, mb.email, folderLabel, page, per);
+        // 时间范围开了就按范围取这段时间的全部邮件（已读、未读、打了删除标记的都算），
+        // 没开就和以前一样只取最新 N 封。
+        const r = cfg.inboxDays > 0
+          ? await apiFetchRange(fetchPage, cfg.inboxDays)
+          : await fetchPage(1, cfg.inboxLimit);
         if (r.error) return done(err(r.error));
         const list = sortNewestFirst(r.rows);
-        return done(await finishInbox(env, mb, folderLabel, version, ttl, check, list, r.total ?? r.rows.length, map, 'api'));
+        return done(await finishInbox(env, mb, folderLabel, version, ttl, check, list, cfg.inboxDays > 0 ? r.rows.length : (r.total ?? r.rows.length), map, 'api'));
       }
       const pass = await decryptMailboxPass(mb, credKey);
       if (!pass) return err('这个邮箱没有存凭据，请重新添加。');
@@ -1013,9 +1045,16 @@ async function finishInbox(env, mb, folderLabel, version, ttl, check, list, tota
       try {
         const opened = await client.openFolder(folderLabel, map);
         if (!opened.ok) return done(err(`打不开文件夹：${opened.err || '服务器没有这个文件夹。'}`));
-        const allUids = await client.uids();
-        const latest = allUids.slice(-(await effectiveConfig(env)).inboxLimit).reverse();
-        const list = sortNewestFirst(await client.fetchList(latest));
+        const cfg = await effectiveConfig(env);
+        let uids;
+        if (cfg.inboxDays > 0) {
+          // 时间范围：取这段时间内到达的全部邮件（SEARCH SINCE 按到达时间算，
+          // 已读、未读、打了删除标记的都算，最多 500 封）。
+          uids = (await client.uidsSince(imapSinceDate(cfg.inboxDays))).slice(-500).reverse();
+        } else {
+          uids = (await client.uids()).slice(-cfg.inboxLimit).reverse();
+        }
+        const list = sortNewestFirst(await client.fetchList(uids));
         return done(await finishInbox(env, mb, folderLabel, version, ttl, check, list, opened.exists, map, 'imap'));
       } finally {
         await client.close();

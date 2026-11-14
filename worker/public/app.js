@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v41';
+const APP_VERSION = 'v42';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -1434,7 +1434,7 @@ function mbFormHtml(order, isEdit) {
     + '<div id="mbFormErr"></div>'
     + '<form id="mbForm" autocomplete="off" novalidate>'
     + '<label>邮箱类型</label><span class="seg" id="mb_kind_seg"><button type="button" data-kind="imap" class="on">普通邮箱（IMAP）</button><button type="button" data-kind="henna">Henna 域名邮箱</button><button type="button" data-kind="cloudmail">Cloud Mail 域名邮箱</button><button type="button" data-kind="mangomail">Mango-Mail 域名邮箱</button></span>'
-    + '<div id="mb_email_wrap"><label>邮箱地址</label><input type="email" id="mb_email" placeholder="如 xxx@qq.com" autocomplete="off" required><textarea id="mb_emails" rows="5" placeholder="一行一个邮箱地址，如&#10;cfmail@151819.xyz&#10;cfmail01@151819.xyz" style="display:none;width:100%" autocomplete="off"></textarea><p class="muted" id="mb_emails_hint" style="display:none">域名邮箱一次可加多个：一行一个地址，共用上面的面板地址、登录账号和密码，保存时逐个测连接，通的存下来、不通的会列出来。</p></div>'
+    + '<div id="mb_email_wrap"><label>邮箱地址</label><input type="email" id="mb_email" placeholder="如 xxx@qq.com" autocomplete="off" required><textarea id="mb_emails" rows="5" placeholder="一行一个邮箱地址，如 cfmail@151819.xyz" style="display:none;width:100%" autocomplete="off"></textarea><p class="muted" id="mb_emails_hint" style="display:none">域名邮箱一次可加多个：一行一个地址，共用上面的面板地址、登录账号和密码，保存时逐个测连接，通的存下来、不通的会列出来。</p></div>'
     + '<div id="mb_api_sec" style="display:none">'
     + '<label>面板地址</label><input type="text" id="mb_panel_url" placeholder="https://你的域名邮箱面板地址" autocomplete="off">'
     + '<label>登录账号</label><input type="text" id="mb_panel_login" placeholder="登面板用的账号（一般是邮箱地址）" autocomplete="off">'
@@ -2056,9 +2056,18 @@ async function renderSettingsView(main) {
     + '<p class="muted">30000 就是 30 秒；改小了新邮件来得快，但查得更勤。</p>'
     + '<label>每页显示几封</label>'
     + '<input type="number" id="set_limit" min="5" max="100" step="1" value="' + (st.inbox_limit == null ? 30 : st.inbox_limit) + '"' + ((st.env_locked && st.env_locked.inboxLimit) ? ' disabled' : '') + '>'
+    + '<label>取信时间范围</label>'
+    + '<select id="set_days"' + ((st.env_locked && st.env_locked.inboxDays) ? ' disabled' : '') + '>'
+    + '<option value="0"' + (((st.inbox_days || 0) === 0) ? ' selected' : '') + '>不限（只取最新 N 封）</option>'
+    + '<option value="30"' + (((st.inbox_days || 0) === 30) ? ' selected' : '') + '>最近 1 个月</option>'
+    + '<option value="90"' + (((st.inbox_days || 0) === 90) ? ' selected' : '') + '>最近 3 个月</option>'
+    + '<option value="180"' + (((st.inbox_days || 0) === 180) ? ' selected' : '') + '>最近半年</option>'
+    + '<option value="365"' + (((st.inbox_days || 0) === 365) ? ' selected' : '') + '>最近 1 年</option>'
+    + '</select>'
+    + '<p class="muted">默认“不限”只取最新 N 封（上面“每页显示几封”那项）；选了时间范围，就取这段时间内收到的全部邮件——已读、未读、打了删除标记的都算，已发送、已删除这些文件夹打开时也一样按这个范围取；最多取 500 封。改完回收件箱点一下刷新（↻）立刻按新范围取，不点也会在 30 秒内自动刷新。</p>'
     + '<label>发信超时（毫秒）</label>'
     + '<input type="number" id="set_smtp_timeout" min="10000" max="120000" step="1000" value="' + (st.smtp_timeout_ms == null ? 60000 : st.smtp_timeout_ms) + '"' + ((st.env_locked && st.env_locked.smtpTimeoutMs) ? ' disabled' : '') + '>'
-    + '<p class="muted">60000 就是 60 秒。CF 面板上设了同名变量（MC_AUTO_REFRESH_MS / MC_INBOX_LIMIT / MC_SMTP_TIMEOUT_MS）的那项会灰掉，以 CF 面板的值为准，这里改了也不生效；没设的在这里改，保存后立刻生效。</p>'
+    + '<p class="muted">60000 就是 60 秒。CF 面板上设了同名变量（MC_AUTO_REFRESH_MS / MC_INBOX_LIMIT / MC_INBOX_DAYS / MC_SMTP_TIMEOUT_MS）的那项会灰掉，以 CF 面板的值为准，这里改了也不生效；没设的在这里改，保存后立刻生效。</p>'
     + '<p><button class="btn ghost">保存收件与发信设置</button></p></form>'
     + '<h2 style="margin-top:16px">登入方式</h2>'
     + '<p class="muted">账号设置：登入账号重新设置、新密码设置、保存新密码。改了之后用新的账号密码登录；邮箱凭据会用新密码重新加密，改完所有记住的设备都要重新登录。</p>'
@@ -2123,12 +2132,14 @@ async function renderSettingsView(main) {
     e.preventDefault();
     const ar = parseInt($('#set_refresh').value, 10);
     const il = parseInt($('#set_limit').value, 10);
+    const id = parseInt($('#set_days').value, 10);
     const st2 = parseInt($('#set_smtp_timeout').value, 10);
     if (isNaN(ar) || ar < 5000 || ar > 300000) { toast('自动刷新间隔填 5000–300000 毫秒。'); return; }
     if (isNaN(il) || il < 5 || il > 100) { toast('每页显示填 5–100 封。'); return; }
+    if (isNaN(id) || [0, 30, 90, 180, 365].indexOf(id) === -1) { toast('取信时间范围选一项。'); return; }
     if (isNaN(st2) || st2 < 10000 || st2 > 120000) { toast('发信超时填 10000–120000 毫秒。'); return; }
     try {
-      await postJsonOk('/api/settings', { auto_refresh_ms: ar, inbox_limit: il, smtp_timeout_ms: st2 });
+      await postJsonOk('/api/settings', { auto_refresh_ms: ar, inbox_limit: il, inbox_days: id, smtp_timeout_ms: st2 });
       UI_CFG.autoRefreshMs = ar;
       if (inboxTimer) { clearInterval(inboxTimer); inboxTimer = null; }
       startInboxAutoRefresh();

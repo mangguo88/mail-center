@@ -500,11 +500,10 @@ export class ImapClient {
   }
 
   // ---------- 取信 ----------
-  async uids() {
-    const r = await this.cmd('UID SEARCH ALL');
-    if (!r.ok) return [];
+  // 解析 UID SEARCH 的返回行（* SEARCH 1 2 3 ...），返回去重升序的 UID 数组。
+  parseSearchLines(lines) {
     const out = [];
-    for (const line of r.lines) {
+    for (const line of lines) {
       if (!line.toUpperCase().startsWith('* SEARCH')) continue;
       for (const tok of line.slice('* SEARCH'.length).trim().split(/\s+/)) {
         if (/^\d+$/.test(tok)) out.push(parseInt(tok, 10));
@@ -513,11 +512,27 @@ export class ImapClient {
     return [...new Set(out)].sort((a, b) => a - b);
   }
 
+  async uids() {
+    const r = await this.cmd('UID SEARCH ALL');
+    if (!r.ok) return [];
+    return this.parseSearchLines(r.lines);
+  }
+
+  // 取某天之后到达的邮件 UID（IMAP SINCE 按到达时间算，含当天）：since 是 'D-Mon-YYYY'。
+  async uidsSince(since) {
+    const r = await this.cmd(`UID SEARCH SINCE ${since}`);
+    if (!r.ok) return [];
+    return this.parseSearchLines(r.lines);
+  }
+
   // 批量取列表：一批 UID 一条 FETCH，同时取 ENVELOPE 和原始 From 头。
+  // 一次最多 40 个 UID 发一条命令，多的分批取（取信时间范围时一次可能取几百封）。
   async fetchList(uids) {
     const out = [];
-    const batch = uids.slice(0, 40);
-    for (let start = 0; start < batch.length; start += 10) {
+    const clean = [...new Set(uids.map((u) => parseInt(u, 10)).filter((u) => u > 0))];
+    for (let base = 0; base < clean.length; base += 40) {
+      const batch = clean.slice(base, base + 40);
+      for (let start = 0; start < batch.length; start += 10) {
       const chunk = batch.slice(start, start + 10);
       const r = await this.cmd(`UID FETCH ${chunk.join(',')} (UID FLAGS ENVELOPE BODY.PEEK[HEADER.FIELDS (FROM)])`);
       if (!r.ok) continue;
@@ -559,6 +574,7 @@ export class ImapClient {
           snippet: '',
         });
       }
+    }
     }
     const snips = await this.fetchSnippets(out.map((r) => r.uid));
     for (const row of out) row.snippet = snips[row.uid] || '';
@@ -703,6 +719,13 @@ function listName(line) {
 }
 
 // 打开一个邮箱的 IMAP 连接并取文件夹映射；失败返回中文原因。
+// 取信时间范围的 IMAP 日期串（SINCE 要 'D-Mon-YYYY'，英文月份）：days 天前那天的 UTC 日期。
+export function imapSinceDate(days) {
+  const d = new Date(Date.now() - days * 86400000);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${d.getUTCDate()}-${months[d.getUTCMonth()]}-${d.getUTCFullYear()}`;
+}
+
 export async function connectMailbox(mb, credPlain, oauthToken = '') {
   const client = new ImapClient();
   const c = await client.connect({
