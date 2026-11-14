@@ -974,6 +974,10 @@ async function finishInbox(env, mb, folderLabel, version, ttl, check, list, tota
     else if (hasRecvData) it.received_at = nowIso;
     else it.received_at = it.date || nowIso;
   }
+  // 列表最后按显示的时间（received_at，没有时回落到发信时间）从新到旧排一次：
+  // 上面刚给这轮新到的信补了 received_at，排序必须在这之后做——在 finishInbox 之前排用的是发信时间，
+  // 显示的却是接收时间，两边对不上时列表里就会出现“显示今天的信排在 11 月 6 日的信后面”。
+  sortNewestFirst(list);
   const payload = { list, total, folders: map, cached_at: new Date().toISOString() };
   if (check) {
     // 自动轮询：只在列表真的变了（新信/删信/已读状态变了）时才写 KV。
