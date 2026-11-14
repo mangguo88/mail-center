@@ -534,7 +534,7 @@ export class ImapClient {
       const batch = clean.slice(base, base + 40);
       for (let start = 0; start < batch.length; start += 10) {
       const chunk = batch.slice(start, start + 10);
-      const r = await this.cmd(`UID FETCH ${chunk.join(',')} (UID FLAGS ENVELOPE BODY.PEEK[HEADER.FIELDS (FROM)])`);
+      const r = await this.cmd(`UID FETCH ${chunk.join(',')} (UID FLAGS INTERNALDATE ENVELOPE BODY.PEEK[HEADER.FIELDS (FROM)])`);
       if (!r.ok) continue;
       for (const line of r.lines) {
         const m = line.match(/^\* \d+ FETCH \(UID (\d+)/);
@@ -563,10 +563,15 @@ export class ImapClient {
           fromAddr = f.mailbox && f.host ? `${f.mailbox}@${f.host}` : (f.mailbox || '');
         }
         if (!fromName) fromName = decodeHeader((env.from[0] || {}).name || '');
+        // INTERNALDATE 是信真正到达邮箱服务器的时间（不是发信时间，也不是本站第一次看到它的时间）：
+        // 列表里显示的“收到时间”就该用它，不然本站第一次取回的旧信会显示成今天、堆到“本月”里。
+        const im = line.match(/INTERNALDATE "([^"]+)"/);
+        const arrived = im ? imapInternalToIso(im[1]) : '';
         out.push({
           uid,
           seen,
           date: env.date,
+          arrived,
           subject: decodeHeader(env.subject),
           from_name: displayName(fromName, fromAddr),
           from_addr: fromAddr,
@@ -719,6 +724,19 @@ function listName(line) {
 }
 
 // 打开一个邮箱的 IMAP 连接并取文件夹映射；失败返回中文原因。
+// IMAP INTERNALDATE（"14-Nov-2026 16:47:00 +0800"）转 ISO 时间串；解析失败返回 ''。
+export function imapInternalToIso(s) {
+  const m = String(s || '').match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4}) (\d{2}):(\d{2}):(\d{2}) ([+-])(\d{2})(\d{2})$/);
+  if (!m) return '';
+  const months = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
+  const mo = months[m[2]];
+  if (mo === undefined) return '';
+  const sign = m[7] === '-' ? -1 : 1;
+  const offMin = sign * (parseInt(m[8], 10) * 60 + parseInt(m[9], 10));
+  const utc = Date.UTC(+m[3], mo, +m[1], +m[4], +m[5], +m[6]) - offMin * 60000;
+  return new Date(utc).toISOString();
+}
+
 // 取信时间范围的 IMAP 日期串（SINCE 要 'D-Mon-YYYY'，英文月份）：days 天前那天的 UTC 日期。
 export function imapSinceDate(days) {
   const d = new Date(Date.now() - days * 86400000);

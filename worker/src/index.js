@@ -970,7 +970,12 @@ async function finishInbox(env, mb, folderLabel, version, ttl, check, list, tota
     }
   }
   for (const it of list) {
-    if (prevRecv[it.uid]) it.received_at = prevRecv[it.uid];
+    // 有真实到达时间就用它（IMAP INTERNALDATE：信真正到达邮箱服务器的时间）：
+    // 以前没有它时，新信一律记“本站第一次看到的时间”，本站第一次取回的旧信就显示成今天、
+    // 全堆到“本月”里——v47 诊断里那封 2 月发的 Dynadot 信就是这么跑到本月的。
+    // INTERNALDATE 是服务器给的、不会变，所以直接用它，不再沿用旧缓存里那个不准的 received_at。
+    if (it.arrived) it.received_at = it.arrived;
+    else if (prevRecv[it.uid]) it.received_at = prevRecv[it.uid];
     else if (hasRecvData) it.received_at = nowIso;
     else it.received_at = it.date || nowIso;
   }
