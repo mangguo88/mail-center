@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v45';
+const APP_VERSION = 'v46';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -804,14 +804,22 @@ function wireMidResizer() {
   });
 }
 
+// 取列表的序号：点文件夹、刷新、自动轮询都可能同时在取，后到的那次为准，
+// 先到的那次回来了也不覆盖（不然快速连点两个文件夹，慢的那次会把列表换回前一个文件夹，
+// 点的那次还会被当成没点上——v45 复测里点已发送第一次没切换就是这个原因：
+// 上一次取列表还没跑完，新的请求直接被拦掉了）。
+let inboxSeq = 0;
+
 async function loadInbox(refresh, isAuto) {
   const mb = curMailbox();
-  if (!mb || S.listLoading) return;
+  if (!mb) return;
+  const mySeq = ++inboxSeq;
   S.listLoading = true;
   const listEl = $('#msgList');
   if (listEl && refresh) listEl.innerHTML = '<p class="muted"><span class="spin"></span> 正在取最新…</p>';
   try {
     const d = await api('/api/inbox?mb=' + encodeURIComponent(mb.id) + '&folder=' + encodeURIComponent(S.curFolder) + (refresh ? '&refresh=1' : (isAuto ? '&check=1' : '')));
+    if (mySeq !== inboxSeq) return; // 已有更新的取列表请求在跑，这次的结果作废
     if (!d.ok) throw new Error(d.err || '取收件箱失败。');
     // 自动轮询：拿刚取回来的列表跟本页正在显示的比——不一样才重画，
     // 一样就什么都不动（不重画、不闪提示、不丢滚动位置）。
@@ -839,10 +847,10 @@ async function loadInbox(refresh, isAuto) {
       if (fresh.length) toast('收到 ' + fresh.length + ' 封新邮件');
     }
   } catch (err) {
-    // 自动轮询失败不打扰（下一轮再试）；手动刷新才报出来
-    if (!isAuto && listEl) listEl.innerHTML = '<div class="flash err">' + esc(err.message || '取收件箱失败。') + '</div>';
+    // 自动轮询失败不打扰（下一轮再试）；手动刷新才报出来（且只有最新那次才报，旧的作废了不报）
+    if (mySeq === inboxSeq && !isAuto && listEl) listEl.innerHTML = '<div class="flash err">' + esc(err.message || '取收件箱失败。') + '</div>';
   } finally {
-    S.listLoading = false;
+    if (mySeq === inboxSeq) S.listLoading = false;
   }
 }
 
