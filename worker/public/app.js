@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v38';
+const APP_VERSION = 'v39';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -1302,7 +1302,7 @@ function renderMailboxesView(main) {
       if (S.mbFilter !== '' && g !== S.mbFilter) continue;
       const statusTag = m.status === 'ok' ? '<span class="tag ok">连接成功</span>' : (m.status === 'error' ? '<span class="tag fail">连接失败</span>' : '<span class="tag none">未测试</span>');
       const isApi = m.kind && m.kind !== 'imap';
-      const kindLabel = m.kind === 'henna' ? 'Henna' : (m.kind === 'cloudmail' ? 'Cloud Mail' : m.kind);
+      const kindLabel = m.kind === 'henna' ? 'Henna' : (m.kind === 'cloudmail' ? 'Cloud Mail' : (m.kind === 'mangomail' ? 'Mango-Mail' : m.kind));
       h += '<tr><td class="email"><strong>' + esc(m.email) + '</strong>' + (isApi ? ' <span class="tag ok">' + esc(kindLabel) + '</span>' : '') + (m.address && m.address !== m.email ? '<br><span class="muted">' + esc(m.address) + '</span>' : '') + '</td>'
         + '<td><span class="tag gtag-cell" data-mb="' + esc(m.id) + '" style="' + groupTagStyle(g) + ';cursor:pointer" title="点一下改分组">' + esc(g) + '</span></td>'
         + '<td>' + (isApi ? '面板账号' : '密码 / 授权码') + '</td>'
@@ -1433,7 +1433,7 @@ function mbFormHtml(order, isEdit) {
     + '<p class="muted">先选邮箱类型，再填凭据。保存时先测连接，通了才存。授权码粘贴时带了空格会自动去掉。</p>'
     + '<div id="mbFormErr"></div>'
     + '<form id="mbForm" autocomplete="off">'
-    + '<label>邮箱类型</label><span class="seg" id="mb_kind_seg"><button type="button" data-kind="imap" class="on">普通邮箱（IMAP）</button><button type="button" data-kind="henna">Henna 域名邮箱</button><button type="button" data-kind="cloudmail">Cloud Mail 域名邮箱</button></span>'
+    + '<label>邮箱类型</label><span class="seg" id="mb_kind_seg"><button type="button" data-kind="imap" class="on">普通邮箱（IMAP）</button><button type="button" data-kind="henna">Henna 域名邮箱</button><button type="button" data-kind="cloudmail">Cloud Mail 域名邮箱</button><button type="button" data-kind="mangomail">Mango-Mail 域名邮箱</button></span>'
     + '<div id="mb_email_wrap"><label>邮箱地址</label><input type="email" id="mb_email" placeholder="如 xxx@qq.com" autocomplete="off" required></div>'
     + '<div id="mb_api_sec" style="display:none">'
     + '<label>面板地址</label><input type="text" id="mb_panel_url" placeholder="https://你的域名邮箱面板地址" autocomplete="off">'
@@ -1501,7 +1501,7 @@ function openMbEditor(mbId) {
     gsel.appendChild(o);
   }
   gsel.value = g;
-  const kind = (mb.kind === 'henna' || mb.kind === 'cloudmail') ? mb.kind : 'imap';
+  const kind = (mb.kind === 'henna' || mb.kind === 'cloudmail' || mb.kind === 'mangomail') ? mb.kind : 'imap';
   syncKindUI(kind);
   if (kind !== 'imap') {
     // 域名邮箱：填面板地址 + 登录账号，密码留空不改。
@@ -1547,7 +1547,7 @@ function normMbPass(p) {
 }
 
 // 域名邮箱的默认面板地址（添加页选类型时自动填好，自己改过的地址不覆盖）。
-const API_PANELS = { henna: 'https://email.070605.xyz/', cloudmail: 'https://cfmail.151819.xyz/' };
+const API_PANELS = { henna: 'https://email.070605.xyz/', cloudmail: 'https://cfmail.151819.xyz/', mangomail: 'https://mango-mail.53424209.workers.dev/' };
 
 // 当前表单选的邮箱类型（imap / henna / cloudmail）。
 function mbKind() {
@@ -1601,8 +1601,8 @@ function syncKindUI(kind) {
       if (actions) actions.insertAdjacentElement('beforebegin', grpWrap);
       if (!MB_EDIT_ID) {
         // 域名邮箱新建时，分组默认配到它对应的域名邮箱分组：按名字里含 henna /
-        // cloud 来认，分组改过名也认得出来；编辑时不动已存的分组。
-        const needle = kind === 'henna' ? 'henna' : 'cloud';
+        // cloud / mango 来认，分组改过名也认得出来；编辑时不动已存的分组。
+        const needle = kind === 'henna' ? 'henna' : kind === 'mangomail' ? 'mango' : 'cloud';
         const sel = $('#mb_group');
         if (sel) {
           const opt = Array.from(sel.options).find((o) => o.value.toLowerCase().indexOf(needle) !== -1);
@@ -1629,8 +1629,9 @@ function syncKindUI(kind) {
     const def = API_PANELS[kind] || '';
     const inp = $('#mb_panel_url');
     if (inp) {
-      const otherDef = kind === 'henna' ? API_PANELS.cloudmail : API_PANELS.henna;
-      if (!inp.value.trim() || inp.value.trim() === otherDef) inp.value = def;
+      // 面板地址是另一个域名邮箱的默认值时，跟着类型换（自己改过的地址不覆盖）。
+      const otherDefs = Object.values(API_PANELS).filter((v) => v !== def);
+      if (!inp.value.trim() || otherDefs.indexOf(inp.value.trim()) !== -1) inp.value = def;
     }
     if (pp) pp.required = !MB_EDIT_ID;
     if (mp) mp.required = false;
@@ -1666,6 +1667,7 @@ function setProviderMode(mode) {
 function delConfirmText() {
   const mb = curMailbox();
   if (mb && mb.kind === 'henna') return '删除这封邮件？Henna 没有已删除，删了找不回来。';
+  if (mb && mb.kind === 'mangomail') return '删除这封邮件？Mango-Mail 没有已删除，删了找不回来。';
   if (mb && mb.kind === 'cloudmail') return '删除这封邮件？';
   return '删除这封邮件？（有已删除文件夹就移过去，没有就直接删）';
 }

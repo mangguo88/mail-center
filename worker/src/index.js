@@ -1,6 +1,6 @@
 // index.js — Mail Center Worker：登录、邮箱管理、收件箱、读信、发信（JSON API）+ 静态资源（Phase 2 界面）
 // TG 轮询在 Phase 3 已接（src/tg.js：Cron 每 5 分钟 + /api/tgcheck）；域名邮箱适配器在 v33 已接
-// （src/henna.js、src/cloudmail.js，走 HTTP API，不走 IMAP/SMTP）；Outlook 还在 Phase 3。
+// （src/henna.js、src/cloudmail.js、src/mangomail.js，走 HTTP API，不走 IMAP/SMTP）；Outlook 还在 Phase 3。
 
 import {
   b64encode, b64decode, randomBytes, sha256Hex, sha256Bytes, hexEncode,
@@ -20,6 +20,10 @@ import {
   hennaPanelUrl, hennaTokenFor, hennaTest, hennaFolderMap,
   hennaFetchList, hennaFetchMessage, hennaMarkRead, hennaDelete, hennaDownload, hennaSend,
 } from './henna.js';
+import {
+  mangoPanelUrl, mangoTokenFor, mangoTest, mangoFolderMap,
+  mangoFetchList, mangoFetchMessage, mangoMarkRead, mangoDelete, mangoDownload, mangoSend,
+} from './mangomail.js';
 import {
   cloudmailPanelUrl, cloudmailTokenFor, cloudmailAccountIdFor, cloudmailTest, cloudmailFolderMap,
   cloudmailFetchList, cloudmailFetchMessage, cloudmailMarkRead, cloudmailDelete, cloudmailSend,
@@ -299,10 +303,10 @@ async function decryptMailboxPass(mb, credKey) {
   return (await decryptCred(mb.pass_enc, credKey)) || '';
 }
 
-// 域名邮箱（Henna / Cloud Mail）上下文：解出凭据 → 登录面板拿 token（Cloud Mail 再换 accountId）。
+// 域名邮箱（Henna / Cloud Mail / Mango-Mail）上下文：解出凭据 → 登录面板拿 token（Cloud Mail 再换 accountId）。
 // 失败返回 {error}；kind=imap 返回 null（走 IMAP 直连）。
 async function apiCtxFor(mb, credKey) {
-  if (mb.kind !== 'henna' && mb.kind !== 'cloudmail') return null;
+  if (mb.kind !== 'henna' && mb.kind !== 'cloudmail' && mb.kind !== 'mangomail') return null;
   const pass = await decryptMailboxPass(mb, credKey);
   if (!pass) return { error: '这个邮箱没有存凭据，请重新添加。' };
   const login = String(mb.panel_login || mb.login_user || '').trim();
@@ -310,6 +314,11 @@ async function apiCtxFor(mb, credKey) {
     const token = await hennaTokenFor(mb.panel_url, login, pass);
     if (!token) return { error: 'Henna 登录失败，请检查面板地址、登录账号和密码。' };
     return { kind: 'henna', token };
+  }
+  if (mb.kind === 'mangomail') {
+    const token = await mangoTokenFor(mb.panel_url, login, pass);
+    if (!token) return { error: 'Mango-Mail 登录失败，请检查面板地址、登录账号和密码。' };
+    return { kind: 'mangomail', token };
   }
   const token = await cloudmailTokenFor(mb.panel_url, login, pass);
   if (!token) return { error: 'Cloud Mail 登录失败，请检查面板地址、登录账号和密码。' };
@@ -627,10 +636,10 @@ export default {
       const password = normalizeMbPass(body.password);
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err('邮箱地址格式不对。');
       if (!password) return err('请填写登录密码或授权码（QQ 用授权码，Gmail 用应用专用密码）。');
-      // ---------- 域名邮箱（Henna / Cloud Mail，v33）：不走 IMAP/SMTP，走面板 HTTP API ----------
-      const kind = (body.kind === 'henna' || body.kind === 'cloudmail') ? body.kind : 'imap';
+      // ---------- 域名邮箱（Henna / Cloud Mail / Mango-Mail，v33/v39）：不走 IMAP/SMTP，走面板 HTTP API ----------
+      const kind = (body.kind === 'henna' || body.kind === 'cloudmail' || body.kind === 'mangomail') ? body.kind : 'imap';
       if (kind !== 'imap') {
-        const panel = kind === 'henna' ? hennaPanelUrl(body.panel_url) : cloudmailPanelUrl(body.panel_url);
+        const panel = kind === 'henna' ? hennaPanelUrl(body.panel_url) : kind === 'mangomail' ? mangoPanelUrl(body.panel_url) : cloudmailPanelUrl(body.panel_url);
         const panelLogin = String(body.panel_login || '').trim();
         const panelPass = String(body.password || '').trim(); // 面板登录密码是普通密码，不走授权码归一化
         if (!panel) return err('面板地址没填。');
@@ -660,7 +669,9 @@ export default {
         // 先测连接，通了才存（和 IMAP 添加一样）。
         const [testOk, testMsg] = kind === 'henna'
           ? await hennaTest(panel, panelLogin, panelPass, email)
-          : await cloudmailTest(panel, panelLogin, panelPass, email);
+          : kind === 'mangomail'
+            ? await mangoTest(panel, panelLogin, panelPass, email)
+            : await cloudmailTest(panel, panelLogin, panelPass, email);
         if (!testOk) return err('连接测试失败：' + testMsg);
         mb.pass_enc = await encryptCred(panelPass, credKey);
         await saveMailbox(env.DB, mb);
@@ -711,12 +722,14 @@ export default {
 
       if (isTest && method === 'POST') {
         // 域名邮箱走面板 API 测连接，不走 IMAP。
-        if (mb.kind === 'henna' || mb.kind === 'cloudmail') {
+        if (mb.kind === 'henna' || mb.kind === 'cloudmail' || mb.kind === 'mangomail') {
           const pass = await decryptMailboxPass(mb, credKey);
           if (!pass) return err('这个邮箱没有存凭据，请重新添加。');
           const [testOk, testMsg] = mb.kind === 'henna'
             ? await hennaTest(mb.panel_url, mb.panel_login || mb.login_user, pass, mb.email)
-            : await cloudmailTest(mb.panel_url, mb.panel_login || mb.login_user, pass, mb.email);
+            : mb.kind === 'mangomail'
+              ? await mangoTest(mb.panel_url, mb.panel_login || mb.login_user, pass, mb.email)
+              : await cloudmailTest(mb.panel_url, mb.panel_login || mb.login_user, pass, mb.email);
           if (!testOk) return done(err('连接测试失败：' + testMsg));
           const next = { ...mb, status: 'ok' };
           await saveMailbox(env.DB, next);
@@ -854,6 +867,10 @@ export default {
         const map = hennaFolderMap();
         return done(json({ ok: true, folders: Object.values(map), map }));
       }
+      if (mb.kind === 'mangomail') {
+        const map = mangoFolderMap();
+        return done(json({ ok: true, folders: Object.values(map), map }));
+      }
       if (mb.kind === 'cloudmail') {
         const map = cloudmailFolderMap();
         return done(json({ ok: true, folders: Object.values(map), map }));
@@ -942,19 +959,21 @@ async function finishInbox(env, mb, folderLabel, version, ttl, check, list, tota
         if (cached) { sortNewestFirst(cached.list); return done(json({ ok: true, ...cached, cached: true, store: 'd1' })); }
       }
       // 域名邮箱：走面板 HTTP API 取列表，不走 IMAP。
-      if (mb.kind === 'henna' || mb.kind === 'cloudmail') {
+      if (mb.kind === 'henna' || mb.kind === 'cloudmail' || mb.kind === 'mangomail') {
         const ctx = await apiCtxFor(mb, credKey);
         if (ctx.error) {
           const next = { ...mb, status: 'error' };
           await saveMailbox(env.DB, next);
           return done(err(ctx.error));
         }
-        const map = mb.kind === 'henna' ? hennaFolderMap() : cloudmailFolderMap();
+        const map = mb.kind === 'henna' ? hennaFolderMap() : mb.kind === 'mangomail' ? mangoFolderMap() : cloudmailFolderMap();
         if (!map[folderLabel]) return done(err('这个邮箱没有这个文件夹。'));
         const inboxLimit = (await effectiveConfig(env)).inboxLimit;
         const r = mb.kind === 'henna'
           ? await hennaFetchList(mb.panel_url, ctx.token, mb.email, folderLabel, 1, inboxLimit)
-          : await cloudmailFetchList(mb.panel_url, ctx.token, ctx.accountId, mb.email, folderLabel, 1, inboxLimit);
+          : mb.kind === 'mangomail'
+            ? await mangoFetchList(mb.panel_url, ctx.token, mb.email, folderLabel, 1, inboxLimit)
+            : await cloudmailFetchList(mb.panel_url, ctx.token, ctx.accountId, mb.email, folderLabel, 1, inboxLimit);
         if (r.error) return done(err(r.error));
         const list = sortNewestFirst(r.rows);
         return done(await finishInbox(env, mb, folderLabel, version, ttl, check, list, r.total ?? r.rows.length, map, 'api'));
@@ -987,14 +1006,16 @@ async function finishInbox(env, mb, folderLabel, version, ttl, check, list, tota
       const uid = parseInt(url.searchParams.get('uid') || '0', 10);
       if (!uid) return err('uid 不对。');
       // 域名邮箱：走面板 HTTP API 取全文（没有原始 MIME，不走 R2 快路径）。
-      if (mb.kind === 'henna' || mb.kind === 'cloudmail') {
+      if (mb.kind === 'henna' || mb.kind === 'cloudmail' || mb.kind === 'mangomail') {
         const ctx = await apiCtxFor(mb, credKey);
         if (ctx.error) return done(err(ctx.error));
         const r = mb.kind === 'henna'
           ? await hennaFetchMessage(mb.panel_url, ctx.token, uid)
-          : await cloudmailFetchMessage(mb.panel_url, ctx.token, ctx.accountId, folderLabel, uid);
+          : mb.kind === 'mangomail'
+            ? await mangoFetchMessage(mb.panel_url, ctx.token, uid)
+            : await cloudmailFetchMessage(mb.panel_url, ctx.token, ctx.accountId, folderLabel, uid);
         if (r.error) return done(err(r.error));
-        // 标已读：Henna 取全文时服务端自动标；Cloud Mail 要显式调。
+        // 标已读：Henna / Mango-Mail 取全文时服务端自动标；Cloud Mail 要显式调。
         if (mb.kind === 'cloudmail') {
           try { await cloudmailMarkRead(mb.panel_url, ctx.token, ctx.accountId, [uid]); } catch { /* 标已读失败不报错 */ }
         }
@@ -1056,18 +1077,22 @@ async function finishInbox(env, mb, folderLabel, version, ttl, check, list, tota
         return new Response(attHit.bytes, { headers });
       }
       // 域名邮箱：附件 id 就是 part，先取全文拿附件元数据（文件名/类型），再从面板下载。
-      if (mb.kind === 'henna' || mb.kind === 'cloudmail') {
+      if (mb.kind === 'henna' || mb.kind === 'cloudmail' || mb.kind === 'mangomail') {
         const ctx = await apiCtxFor(mb, credKey);
         if (ctx.error) return done(err(ctx.error));
         const msg = mb.kind === 'henna'
           ? await hennaFetchMessage(mb.panel_url, ctx.token, uid)
-          : await cloudmailFetchMessage(mb.panel_url, ctx.token, ctx.accountId, folderLabel, uid);
+          : mb.kind === 'mangomail'
+            ? await mangoFetchMessage(mb.panel_url, ctx.token, uid)
+            : await cloudmailFetchMessage(mb.panel_url, ctx.token, ctx.accountId, folderLabel, uid);
         if (msg.error) return done(err(msg.error));
         const att = msg.attachments.find((a) => String(a.id) === part);
         if (!att) return done(err('找不到这个附件。', 404));
         const dl = mb.kind === 'henna'
           ? await hennaDownload(mb.panel_url, ctx.token, att.id)
-          : await cloudmailDownloadByAttId(mb.panel_url, ctx.token, ctx.accountId, uid, att.id);
+          : mb.kind === 'mangomail'
+            ? await mangoDownload(mb.panel_url, ctx.token, att.id)
+            : await cloudmailDownloadByAttId(mb.panel_url, ctx.token, ctx.accountId, uid, att.id);
         if (dl.error) return done(err(dl.error));
         await storeAttachment(env, mb.id, folderLabel, uid, part, dl.bytes, att.ctype, att.filename);
         const headers = new Headers();
@@ -1141,14 +1166,16 @@ async function finishInbox(env, mb, folderLabel, version, ttl, check, list, tota
       const fromAddr = mb.address || mb.email;
       const fromName = String(body.from_name || '').trim();
       // 域名邮箱：走面板 HTTP API 发信（纯文本，抄送并进收件人；不支持附件）。
-      if (mb.kind === 'henna' || mb.kind === 'cloudmail') {
-        if (atts.length) return done(err('Henna / Cloud Mail 发信不支持附件，请去掉附件再发。'));
+      if (mb.kind === 'henna' || mb.kind === 'cloudmail' || mb.kind === 'mangomail') {
+        if (atts.length) return done(err('Henna / Cloud Mail / Mango-Mail 发信不支持附件，请去掉附件再发。'));
         const ctx = await apiCtxFor(mb, credKey);
         if (ctx.error) return done(err(ctx.error));
         const allTo = [...to, ...cc];
         const res = mb.kind === 'henna'
           ? await hennaSend(mb.panel_url, ctx.token, fromAddr, allTo, subject, text)
-          : await cloudmailSend(mb.panel_url, ctx.token, ctx.accountId, fromAddr, allTo, subject, text);
+          : mb.kind === 'mangomail'
+            ? await mangoSend(mb.panel_url, ctx.token, fromAddr, allTo, subject, text)
+            : await cloudmailSend(mb.panel_url, ctx.token, ctx.accountId, fromAddr, allTo, subject, text);
         if (!res[0]) return done(err(res[1]));
         await invalidateMailboxCache(env, mb.id);
         return done(json({ ok: true }));
@@ -1188,21 +1215,25 @@ async function finishInbox(env, mb, folderLabel, version, ttl, check, list, tota
       const uid = parseInt(body.uid || '0', 10);
       if (!uid) return err('uid 不对。');
       // 域名邮箱：标已读/删除走面板 API；没有垃圾箱和已删除，不能移动。
-      if (mb.kind === 'henna' || mb.kind === 'cloudmail') {
+      if (mb.kind === 'henna' || mb.kind === 'cloudmail' || mb.kind === 'mangomail') {
         const ctx = await apiCtxFor(mb, credKey);
         if (ctx.error) return done(err(ctx.error));
         if (path === '/api/flag') {
           if (body.seen === false) return done(err('这个邮箱不支持取消已读。'));
           const okFlag = mb.kind === 'henna'
             ? await hennaMarkRead(mb.panel_url, ctx.token, uid)
-            : await cloudmailMarkRead(mb.panel_url, ctx.token, ctx.accountId, [uid]);
+            : mb.kind === 'mangomail'
+              ? await mangoMarkRead(mb.panel_url, ctx.token, uid)
+              : await cloudmailMarkRead(mb.panel_url, ctx.token, ctx.accountId, [uid]);
           if (!okFlag) return done(err('标记失败。'));
         } else if (path === '/api/move') {
-          return done(err('Henna / Cloud Mail 没有垃圾箱和已删除，不能移动邮件。'));
+          return done(err('Henna / Cloud Mail / Mango-Mail 没有垃圾箱和已删除，不能移动邮件。'));
         } else {
           const r = mb.kind === 'henna'
             ? await hennaDelete(mb.panel_url, ctx.token, uid)
-            : await cloudmailDelete(mb.panel_url, ctx.token, ctx.accountId, [uid]);
+            : mb.kind === 'mangomail'
+              ? await mangoDelete(mb.panel_url, ctx.token, uid)
+              : await cloudmailDelete(mb.panel_url, ctx.token, ctx.accountId, [uid]);
           if (!r[0]) return done(err(r[1]));
           await deleteMessageStore(env, mb.id, folderLabel, uid);
         }
