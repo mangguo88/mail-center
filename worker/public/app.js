@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v40';
+const APP_VERSION = 'v41';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -881,7 +881,7 @@ function renderInboxList() {
   if (pills) {
     let h = '';
     for (const label of FOLDER_ORDER) {
-      if (!S.folderMap[label] && label !== S.curFolder) continue;
+      if (!(label in S.folderMap) && label !== S.curFolder) continue;
       h += '<a class="' + (label === S.curFolder ? 'on' : '') + '" data-folder="' + label + '">' + esc(FOLDER_NAMES[label]) + '</a>';
     }
     if (!h) h = '<a class="on" data-folder="inbox">收件箱</a>';
@@ -1432,7 +1432,7 @@ function mbFormHtml(order, isEdit) {
   return '<div class="card"><h2 id="mbFormTitle">' + (isEdit ? '修改登录方式 / 凭据' : '添加邮箱') + '</h2>'
     + '<p class="muted">先选邮箱类型，再填凭据。保存时先测连接，通了才存。授权码粘贴时带了空格会自动去掉。</p>'
     + '<div id="mbFormErr"></div>'
-    + '<form id="mbForm" autocomplete="off">'
+    + '<form id="mbForm" autocomplete="off" novalidate>'
     + '<label>邮箱类型</label><span class="seg" id="mb_kind_seg"><button type="button" data-kind="imap" class="on">普通邮箱（IMAP）</button><button type="button" data-kind="henna">Henna 域名邮箱</button><button type="button" data-kind="cloudmail">Cloud Mail 域名邮箱</button><button type="button" data-kind="mangomail">Mango-Mail 域名邮箱</button></span>'
     + '<div id="mb_email_wrap"><label>邮箱地址</label><input type="email" id="mb_email" placeholder="如 xxx@qq.com" autocomplete="off" required><textarea id="mb_emails" rows="5" placeholder="一行一个邮箱地址，如&#10;cfmail@151819.xyz&#10;cfmail01@151819.xyz" style="display:none;width:100%" autocomplete="off"></textarea><p class="muted" id="mb_emails_hint" style="display:none">域名邮箱一次可加多个：一行一个地址，共用上面的面板地址、登录账号和密码，保存时逐个测连接，通的存下来、不通的会列出来。</p></div>'
     + '<div id="mb_api_sec" style="display:none">'
@@ -1440,6 +1440,7 @@ function mbFormHtml(order, isEdit) {
     + '<label>登录账号</label><input type="text" id="mb_panel_login" placeholder="登面板用的账号（一般是邮箱地址）" autocomplete="off">'
     + '<label>面板登录密码</label>'
     + '<div style="display:flex;gap:8px;align-items:center"><input type="password" id="mb_panel_pass" placeholder="登面板用的密码" autocomplete="new-password" style="flex:1"><button type="button" class="btn ghost sm" id="mb_panel_pass_toggle" style="white-space:nowrap">👁 显示</button></div>'
+    + '<p class="muted" id="mb_panel_forget_wrap" style="display:none"><a href="#" id="mb_panel_forget">忘记已记住的面板账号</a></p>'
     + '<p class="muted" id="mb_api_note">域名邮箱没有 IMAP/SMTP，邮件存在面板自己的数据库里，这里走面板的 HTTP 接口收发。一条记录只管一个邮箱地址；一次可加多个地址，每个地址单独存一条记录。</p>'
     + '</div>'
     + '<div id="mb_imap_sec">'
@@ -1573,6 +1574,22 @@ function detectGroupForEmail(email) {
   return '';
 }
 
+// 记住域名邮箱的面板登录：成功加过一次后，下次打开添加页自动填上，
+// 只存在本浏览器里（localStorage），换浏览器/清数据就没了；点“忘记”可清掉。
+const PANEL_MEM_KEY = 'mc_panel_login';
+function panelMemLoad() { try { return JSON.parse(lsGet(PANEL_MEM_KEY, '{}') || '{}'); } catch (e) { return {}; } }
+function panelMemGet(kind) { const all = panelMemLoad(); return (all && all[kind]) || null; }
+function panelMemSave(kind, login, pass) {
+  const all = panelMemLoad();
+  all[kind] = { login, pass };
+  lsSet(PANEL_MEM_KEY, JSON.stringify(all));
+}
+function panelMemForget(kind) {
+  const all = panelMemLoad();
+  delete all[kind];
+  lsSet(PANEL_MEM_KEY, JSON.stringify(all));
+}
+
 // 批量地址解析：一行一个，也认逗号/分号/空格分隔；去空白、去重（不分大小写）、去空行。
 function parseBatchEmails(text) {
   const out = [];
@@ -1614,6 +1631,9 @@ function syncKindUI(kind) {
   if (emInp) emInp.style.display = batchMode ? 'none' : '';
   if (emList) emList.style.display = batchMode ? '' : 'none';
   if (emHint) emHint.style.display = batchMode ? '' : 'none';
+  // 批量时单个地址框藏起来了：它的 required 也要跟着关掉，不然浏览器自带的
+  // 表单校验会卡住提交、页面却什么都不报（v40 实测就是这么静默失败的）。
+  if (emInp) emInp.required = !batchMode;
   if (!batchMode && emList && emInp) {
     // 从批量切回单个时，多行里只有一个地址就顺手带过去。
     const one = parseBatchEmails(emList.value);
@@ -1662,9 +1682,29 @@ function syncKindUI(kind) {
     }
     if (pp) pp.required = !MB_EDIT_ID;
     if (mp) mp.required = false;
+    // 新加时自动填上次记住的面板账号密码（只填空着的栏；切类型时，上一类
+    // 记住的账号还留在栏里也会跟着换成这一类的）。
+    if (!MB_EDIT_ID) {
+      const mem = panelMemGet(kind);
+      const loginInp = $('#mb_panel_login');
+      if (loginInp && mem && mem.login) {
+        const cur = loginInp.value.trim();
+        const allMem = panelMemLoad();
+        const otherLogins = Object.keys(allMem).filter((k) => k !== kind).map((k) => allMem[k].login);
+        if (!cur || otherLogins.indexOf(cur) !== -1) loginInp.value = mem.login;
+      }
+      if (pp && mem && mem.pass && !pp.value.trim()) pp.value = mem.pass;
+      const fw = $('#mb_panel_forget_wrap');
+      if (fw) fw.style.display = mem ? '' : 'none';
+    } else {
+      const fw = $('#mb_panel_forget_wrap');
+      if (fw) fw.style.display = 'none';
+    }
   } else {
     if (pp) pp.required = false;
     if (mp) mp.required = !MB_EDIT_ID;
+    const fw = $('#mb_panel_forget_wrap');
+    if (fw) fw.style.display = 'none';
   }
 }
 
@@ -1790,6 +1830,18 @@ function wireMbForm() {
     inp.type = show ? 'text' : 'password';
     $('#mb_panel_pass_toggle').textContent = show ? '🙈 隐藏' : '👁 显示';
   });
+  // 忘记已记住的面板账号密码（只清本浏览器的记录，不动已加的邮箱）。
+  const forgetLink = $('#mb_panel_forget');
+  if (forgetLink) forgetLink.addEventListener('click', (e) => {
+    e.preventDefault();
+    panelMemForget(mbKind());
+    const li = $('#mb_panel_login');
+    if (li) li.value = '';
+    const pi = $('#mb_panel_pass');
+    if (pi) pi.value = '';
+    syncKindUI(mbKind());
+    toast('已忘记这个面板的账号密码。');
+  });
   $('#mbCancelBtn').addEventListener('click', () => {
     MB_EDIT_ID = '';
     S.view = 'mailboxes';
@@ -1843,6 +1895,7 @@ function wireMbForm() {
         try {
           await apiOk('/api/mailboxes/' + encodeURIComponent(MB_EDIT_ID), { method: 'PUT', body: JSON.stringify(body) });
           toast('已保存。');
+          if (panelPass) panelMemSave(kind, panelLogin, panelPass);
           MB_EDIT_ID = '';
           await loadMailboxes();
           S.view = 'mailboxes';
@@ -1869,6 +1922,7 @@ function wireMbForm() {
           const added = d.added || [];
           const failed = d.failed || [];
           if (added.length) toast('已添加 ' + added.length + ' 个邮箱' + (failed.length ? '，' + failed.length + ' 个没加上' : '') + '。');
+          if (added.length) panelMemSave(kind, panelLogin, panelPass);
           if (failed.length) flashList('没加上的 ' + failed.length + ' 个：', failed.map((f) => f.email + '（' + f.error + '）'));
           if (!added.length) { btn.disabled = false; btn.textContent = '保存邮箱'; return; }
           await loadMailboxes();
@@ -1887,6 +1941,7 @@ function wireMbForm() {
         const d = await postJson('/api/mailboxes', body);
         if (!d.ok) throw new Error(d.err || '添加失败。');
         toast('已添加：' + email + '，可以继续加下一个。');
+        panelMemSave(kind, panelLogin, panelPass);
         await loadMailboxes();
         renderSidebar();
         renderAddMailboxView($('#main'));

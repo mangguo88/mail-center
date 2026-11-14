@@ -991,7 +991,7 @@ async function finishInbox(env, mb, folderLabel, version, ttl, check, list, tota
           return done(err(ctx.error));
         }
         const map = mb.kind === 'henna' ? hennaFolderMap() : mb.kind === 'mangomail' ? mangoFolderMap() : cloudmailFolderMap();
-        if (!map[folderLabel]) return done(err('这个邮箱没有这个文件夹。'));
+        if (!(folderLabel in map)) return done(err('这个邮箱没有这个文件夹。'));
         const inboxLimit = (await effectiveConfig(env)).inboxLimit;
         const r = mb.kind === 'henna'
           ? await hennaFetchList(mb.panel_url, ctx.token, mb.email, folderLabel, 1, inboxLimit)
