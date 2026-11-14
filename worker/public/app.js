@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v48';
+const APP_VERSION = 'v49';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -952,9 +952,9 @@ function renderInboxList() {
     if (q) ph += '<span>找到 ' + view.length + ' 封</span>';
     if (pages > 1) {
       ph += '<span style="margin-left:auto"></span>'
-        + '<button class="btn ghost sm" id="pagePrev"' + (S.page <= 1 ? ' disabled' : '') + '>‹ 上一页</button>'
+        + '<button class="btn ghost sm" id="pagePrev"' + (S.page <= 1 ? ' disabled' : '') + '>‹ 上页</button>'
         + '<span>第 ' + S.page + ' / ' + pages + ' 页</span>'
-        + '<button class="btn ghost sm" id="pageNext"' + (S.page >= pages ? ' disabled' : '') + '>下一页 ›</button>';
+        + '<button class="btn ghost sm" id="pageNext"' + (S.page >= pages ? ' disabled' : '') + '>下页 ›</button>';
     }
     pager.innerHTML = ph;
     const pv = $('#pagePrev');
@@ -2105,11 +2105,11 @@ async function renderSettingsView(main) {
     + '<div id="setErr"></div>'
     + '<form id="setNameForm" autocomplete="off"><label>默认显示名称</label>'
     + '<input type="text" id="set_display" value="' + esc(st.display_name || '') + '">'
-    + '<p><button class="btn ghost">保存显示名称</button></p></form>'
+    + '<p><button class="btn">保存显示名称</button></p></form>'
     + '<form id="setCacheForm" autocomplete="off"><label>收件箱列表缓存（分钟）</label>'
     + '<input type="number" id="set_ttl" min="0" max="60" step="1" value="' + (st.cache_ttl == null ? 5 : st.cache_ttl) + '">'
     + '<p class="muted">缓存时间内再进收件箱直接读缓存、秒进；切文件夹时先显示上次的列表、后台再取新的；点刷新随时取最新、不受这个时间限制；新邮件最多晚这个时间出现。</p>'
-    + '<p><button class="btn ghost">保存缓存时间</button></p></form>'
+    + '<p><button class="btn">保存缓存时间</button></p></form>'
     + '<form id="setTuneForm" autocomplete="off"><label>自动刷新间隔（毫秒）</label>'
     + '<input type="number" id="set_refresh" min="5000" max="300000" step="1000" value="' + (st.auto_refresh_ms == null ? 30000 : st.auto_refresh_ms) + '"' + ((st.env_locked && st.env_locked.autoRefreshMs) ? ' disabled' : '') + '>'
     + '<p class="muted">30000 就是 30 秒；改小了新邮件来得快，但查得更勤。</p>'
@@ -2128,7 +2128,7 @@ async function renderSettingsView(main) {
     + '<label>发信超时（毫秒）</label>'
     + '<input type="number" id="set_smtp_timeout" min="10000" max="120000" step="1000" value="' + (st.smtp_timeout_ms == null ? 60000 : st.smtp_timeout_ms) + '"' + ((st.env_locked && st.env_locked.smtpTimeoutMs) ? ' disabled' : '') + '>'
     + '<p class="muted">60000 就是 60 秒。CF 面板上设了同名变量（MC_AUTO_REFRESH_MS / MC_INBOX_LIMIT / MC_INBOX_DAYS / MC_SMTP_TIMEOUT_MS）的那项会灰掉，以 CF 面板的值为准，这里改了也不生效；没设的在这里改，保存后立刻生效。</p>'
-    + '<p><button class="btn ghost">保存收件与发信设置</button></p></form>'
+    + '<p><button class="btn">保存收件与发信设置</button></p></form>'
     + '<h2 style="margin-top:16px">登入方式</h2>'
     + '<p class="muted">账号设置：登入账号重新设置、新密码设置、保存新密码。改了之后用新的账号密码登录；邮箱凭据会用新密码重新加密，改完所有记住的设备都要重新登录。</p>'
     + '<form id="setPassForm" autocomplete="off"><label>登入账号</label>'

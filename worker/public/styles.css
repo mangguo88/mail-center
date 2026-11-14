@@ -54,6 +54,9 @@ a{color:#15803d;text-decoration:none}
 label{display:block;font-size:13px;color:#57534e;margin:14px 0 6px}
 input[type=text],input[type=password],input[type=email],input[type=number],select{width:100%;padding:10px 12px;border:1px solid #e7e5e4;border-radius:8px;font-size:15px;background:#fff}
 input:focus{outline:2px solid var(--accent-border);border-color:var(--accent)}
+/* 搜索栏：不要占满整栏，点中时边框变绿加绿晕，看得见 */
+#inboxSearch{width:80%;max-width:240px;padding:10px 12px;border:1px solid #e7e5e4;border-radius:8px;font-size:15px;background:#fff}
+#inboxSearch:focus{outline:none;border:2px solid var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 input[type=checkbox]{accent-color:var(--accent)}
 .row{display:flex;gap:12px}.row>div{flex:1}
 table{width:100%;border-collapse:collapse;font-size:14px}
@@ -228,7 +231,7 @@ textarea{width:100%;padding:10px 12px;border:1px solid #e7e5e4;border-radius:8px
   .pushrow{flex-wrap:wrap}
   .login{margin:40px 12px;padding:22px 18px}
   /* iOS 上字号小于 16px 的输入框一点就自动放大，手机上统一 16px */
-  input[type=text],input[type=password],input[type=email],input[type=number],select,textarea{font-size:16px}
+  input[type=text],input[type=password],input[type=email],input[type=number],select,textarea,#inboxSearch{font-size:16px}
 }
 @media(max-width:640px){.row{flex-direction:column}.form-grid{grid-template-columns:1fr}.form-grid3{grid-template-columns:1fr}.tgslots{grid-template-columns:1fr}.modal-backdrop{padding:12px 8px}}
 
