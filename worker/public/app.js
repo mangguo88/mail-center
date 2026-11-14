@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v43';
+const APP_VERSION = 'v44';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -135,6 +135,8 @@ const S = {
   curFolder: 'inbox',  // inbox | sent | drafts | spam | trash
   folderMap: {},       // label -> 真实文件夹名（取自 inbox 返回的 folders）
   list: [],
+  page: 1,           // 当前页（翻页用，从 1 开始）
+  query: '',         // 关键词搜索（只搜已加载的邮件：主题、发件人、正文摘要）
   listMeta: null,      // { total, cached_at, cached, store }
   listLoading: false,
   curUid: 0,
@@ -144,10 +146,12 @@ const S = {
 };
 const FOLDER_NAMES = { inbox: '收件箱', sent: '已发送', drafts: '草稿箱', spam: '垃圾箱', trash: '已删除' };
 
-// 界面可调配置：默认值 = 现在的左栏 240 / 收件栏 220 / 自动刷新 30000ms。
+// 界面可调配置：默认值 = 现在的左栏 240 / 收件栏 220 / 自动刷新 30000ms / 每页 30 封。
 // renderApp 开头会从 /api/status 读 CF 面板环境变量（MC_SIDEBAR_W / MC_MID_W / MC_AUTO_REFRESH_MS）
 // 来覆盖，没设就用默认值；读失败也用默认值，不影响进页面。
-const UI_CFG = { sidebarW: 240, midW: 220, autoRefreshMs: 30000 };
+// pageSize 从设置里的“每页显示几封”（inbox_limit）来：取信范围没开时它就是一次取的封数，
+// 取信范围开着时一次取回的邮件按这个数翻页。
+const UI_CFG = { sidebarW: 240, midW: 220, autoRefreshMs: 30000, pageSize: 30 };
 
 // ---------- 面板主题（调色）：主色存在 D1 settings.theme_accent，空 = 默认绿 ----------
 // 浅色底/描边/深色字都由主色现算，换什么色都协调；localStorage 只做本机快速套用，服务器为准。
@@ -330,6 +334,7 @@ async function renderApp() {
       if (Number.isFinite(d.config.sidebarW) && d.config.sidebarW > 0) UI_CFG.sidebarW = d.config.sidebarW;
       if (Number.isFinite(d.config.midW) && d.config.midW > 0) UI_CFG.midW = d.config.midW;
       if (Number.isFinite(d.config.autoRefreshMs) && d.config.autoRefreshMs > 0) UI_CFG.autoRefreshMs = d.config.autoRefreshMs;
+      if (Number.isFinite(d.config.inboxLimit) && d.config.inboxLimit >= 5 && d.config.inboxLimit <= 100) UI_CFG.pageSize = d.config.inboxLimit;
     }
   } catch (e) { /* 读不到就用默认值 */ }
   const collapsed = lsGet('mc_side_collapsed', '0') === '1';
@@ -704,6 +709,8 @@ function selectMailbox(mbId) {
   S.curFolder = 'inbox';
   S.curUid = 0;
   S.curMsg = null;
+  S.page = 1;
+  S.query = '';
   S.view = 'inbox';
   renderSidebar();
   renderMain();
@@ -743,6 +750,7 @@ function renderInboxView(main) {
     '<div class="panes"><div class="pane-mid" id="paneMid" style="flex-basis:' + midW + 'px;width:' + midW + 'px">'
     + '<div class="card"><h2 id="inboxTitle">收件箱</h2>'
     + '<div class="folders folders-3" id="folderPills"></div>'
+    + '<input type="search" id="inboxSearch" placeholder="搜索已加载的邮件：主题、发件人、正文摘要" autocomplete="off">'
     + '<p class="muted" id="cacheLine"></p>'
     + '<div class="msglist" id="msgList"><p class="muted">正在取邮件…</p></div>'
     + '<div class="pager" id="pagerLine"></div>'
@@ -751,6 +759,12 @@ function renderInboxView(main) {
     + '<div class="pane-right"><div class="card" id="readerCard"></div></div></div>';
   wireMidResizer();
   renderReaderEmpty();
+  // 关键词搜索：只搜已加载的这批邮件（主题、发件人、正文摘要），边输边筛、回到第 1 页。
+  const si = $('#inboxSearch');
+  if (si) {
+    si.value = S.query || '';
+    si.addEventListener('input', () => { S.query = si.value; S.page = 1; renderInboxList(); });
+  }
   const mb = curMailbox();
   if (!mb) {
     $('#inboxTitle').textContent = '收件箱';
@@ -893,6 +907,7 @@ function renderInboxList() {
       S.curFolder = a.getAttribute('data-folder');
       S.curUid = 0;
       S.curMsg = null;
+      S.page = 1;
       renderReaderEmpty();
       loadInbox(false);
     }));
@@ -905,18 +920,46 @@ function renderInboxList() {
       ? '缓存于 ' + fmtHM(S.listMeta.cached_at) + '（' + (S.listMeta.store === 'kv' ? '边缘缓存' : '数据库缓存') + '）'
       : '刚取的最新列表';
   }
+  // 关键词搜索（只搜已加载的这批邮件）+ 翻页：先筛出符合的，再按每页 pageSize 切。
+  const q = (S.query || '').trim().toLowerCase();
+  const view = q
+    ? S.list.filter((m) => ((m.subject || '') + ' ' + (m.from_name || '') + ' ' + (m.from_addr || '') + ' ' + (m.snippet || '')).toLowerCase().includes(q))
+    : S.list;
+  const pageSize = (Number.isFinite(UI_CFG.pageSize) && UI_CFG.pageSize > 0) ? UI_CFG.pageSize : 30;
+  const pages = Math.max(1, Math.ceil(view.length / pageSize));
+  if (S.page > pages) S.page = pages;
+  if (S.page < 1) S.page = 1;
+  const pageItems = view.slice((S.page - 1) * pageSize, S.page * pageSize);
   const pager = $('#pagerLine');
-  if (pager && S.listMeta) pager.innerHTML = '<span>最新 ' + S.list.length + ' 封，共 ' + S.listMeta.total + ' 封</span>';
+  if (pager && S.listMeta) {
+    let ph = '<span>最新 ' + S.list.length + ' 封，共 ' + S.listMeta.total + ' 封</span>';
+    if (q) ph += '<span>找到 ' + view.length + ' 封</span>';
+    if (pages > 1) {
+      ph += '<span style="margin-left:auto"></span>'
+        + '<button class="btn ghost sm" id="pagePrev"' + (S.page <= 1 ? ' disabled' : '') + '>‹ 上一页</button>'
+        + '<span>第 ' + S.page + ' / ' + pages + ' 页</span>'
+        + '<button class="btn ghost sm" id="pageNext"' + (S.page >= pages ? ' disabled' : '') + '>下一页 ›</button>';
+    }
+    pager.innerHTML = ph;
+    const pv = $('#pagePrev');
+    if (pv) pv.addEventListener('click', () => { if (S.page > 1) { S.page--; renderInboxList(); } });
+    const nx = $('#pageNext');
+    if (nx) nx.addEventListener('click', () => { if (S.page < pages) { S.page++; renderInboxList(); } });
+  }
   const listEl = $('#msgList');
   if (!listEl) return;
   if (!S.list.length) {
     listEl.innerHTML = '<p class="muted">这个文件夹里没有邮件。</p>';
     return;
   }
+  if (!view.length) {
+    listEl.innerHTML = '<p class="muted">没有找到包含“' + esc(S.query.trim()) + '”的邮件（只搜已加载的这批）。</p>';
+    return;
+  }
   // 按月分组（新到旧）
   const groups = {};
   const order = [];
-  for (const m of S.list) {
+  for (const m of pageItems) {
     const k = monthKeyOf(listTimeOf(m));
     if (!groups[k]) { groups[k] = []; order.push(k); }
     groups[k].push(m);
@@ -2056,6 +2099,7 @@ async function renderSettingsView(main) {
     + '<p class="muted">30000 就是 30 秒；改小了新邮件来得快，但查得更勤。</p>'
     + '<label>每页显示几封</label>'
     + '<input type="number" id="set_limit" min="5" max="100" step="1" value="' + (st.inbox_limit == null ? 30 : st.inbox_limit) + '"' + ((st.env_locked && st.env_locked.inboxLimit) ? ' disabled' : '') + '>'
+    + '<p class="muted">取信时间范围没开时，一次就取这么多封；开着时，一次取回的邮件按这个数翻页。</p>'
     + '<label>取信时间范围</label>'
     + '<select id="set_days"' + ((st.env_locked && st.env_locked.inboxDays) ? ' disabled' : '') + '>'
     + '<option value="0"' + (((st.inbox_days || 0) === 0) ? ' selected' : '') + '>不限（只取最新 N 封）</option>'
@@ -2141,6 +2185,7 @@ async function renderSettingsView(main) {
     try {
       await postJsonOk('/api/settings', { auto_refresh_ms: ar, inbox_limit: il, inbox_days: id, smtp_timeout_ms: st2 });
       UI_CFG.autoRefreshMs = ar;
+      UI_CFG.pageSize = il;
       if (inboxTimer) { clearInterval(inboxTimer); inboxTimer = null; }
       startInboxAutoRefresh();
       toast('收件与发信设置已保存，立刻生效。');
