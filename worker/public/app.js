@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v44';
+const APP_VERSION = 'v45';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -137,6 +137,7 @@ const S = {
   list: [],
   page: 1,           // 当前页（翻页用，从 1 开始）
   query: '',         // 关键词搜索（只搜已加载的邮件：主题、发件人、正文摘要）
+  folderCache: {},   // 当前邮箱各文件夹上次取回的列表（切文件夹时先显示旧的、后台再取新的）
   listMeta: null,      // { total, cached_at, cached, store }
   listLoading: false,
   curUid: 0,
@@ -711,6 +712,7 @@ function selectMailbox(mbId) {
   S.curMsg = null;
   S.page = 1;
   S.query = '';
+  S.folderCache = {};
   S.view = 'inbox';
   renderSidebar();
   renderMain();
@@ -825,6 +827,8 @@ async function loadInbox(refresh, isAuto) {
     S.list = d.list || [];
     S.folderMap = d.folders || {};
     S.listMeta = { total: d.total || 0, cached_at: d.cached_at || '', cached: !!d.cached, store: d.store || '' };
+    // 记下这个文件夹这次取回的列表：下次切回来先显示它，不用干等。
+    S.folderCache[S.curFolder] = { list: S.list, listMeta: S.listMeta };
     S.unread[mb.id] = S.list.filter((m) => !m.seen).length;
     renderInboxList();
     renderSidebarDots();
@@ -909,6 +913,10 @@ function renderInboxList() {
       S.curMsg = null;
       S.page = 1;
       renderReaderEmpty();
+      // 切文件夹先把上次取回的旧列表立刻显示出来（不用干等），后台再取新的、取到就更新；
+      // 没打开过的文件夹没有旧列表，就等这次取回。
+      const fc = S.folderCache[S.curFolder];
+      if (fc && fc.list) { S.list = fc.list; S.listMeta = fc.listMeta; renderInboxList(); }
       loadInbox(false);
     }));
     const rb = $('#refreshBtn');
@@ -2091,8 +2099,8 @@ async function renderSettingsView(main) {
     + '<input type="text" id="set_display" value="' + esc(st.display_name || '') + '">'
     + '<p><button class="btn ghost">保存显示名称</button></p></form>'
     + '<form id="setCacheForm" autocomplete="off"><label>收件箱列表缓存（分钟）</label>'
-    + '<input type="number" id="set_ttl" min="0" max="60" step="1" value="' + (st.cache_ttl == null ? 1 : st.cache_ttl) + '">'
-    + '<p class="muted">1 分钟内再进收件箱直接读缓存、秒进；点刷新随时取最新、不受这个时间限制；新邮件最多晚这个时间出现。</p>'
+    + '<input type="number" id="set_ttl" min="0" max="60" step="1" value="' + (st.cache_ttl == null ? 5 : st.cache_ttl) + '">'
+    + '<p class="muted">缓存时间内再进收件箱直接读缓存、秒进；切文件夹时先显示上次的列表、后台再取新的；点刷新随时取最新、不受这个时间限制；新邮件最多晚这个时间出现。</p>'
     + '<p><button class="btn ghost">保存缓存时间</button></p></form>'
     + '<form id="setTuneForm" autocomplete="off"><label>自动刷新间隔（毫秒）</label>'
     + '<input type="number" id="set_refresh" min="5000" max="300000" step="1000" value="' + (st.auto_refresh_ms == null ? 30000 : st.auto_refresh_ms) + '"' + ((st.env_locked && st.env_locked.autoRefreshMs) ? ' disabled' : '') + '>'

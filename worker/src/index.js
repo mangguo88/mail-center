@@ -997,14 +997,14 @@ async function finishInbox(env, mb, folderLabel, version, ttl, check, list, tota
   return json({ ok: true, ...payload, cached: false, store });
 }
 
-    // ---------- 收件箱列表（带 1 分钟缓存） ----------
+    // ---------- 收件箱列表（带缓存，默认 5 分钟） ----------
     if (path === '/api/inbox' && method === 'GET') {
       const mb = await getMailbox(env.DB, url.searchParams.get('mb') || '');
       if (!mb) return err('找不到这个邮箱。', 404);
       const folderLabel = url.searchParams.get('folder') || 'inbox';
       const refresh = url.searchParams.get('refresh') === '1';
       const check = url.searchParams.get('check') === '1';
-      const ttl = site.cache_ttl ?? 1;
+      const ttl = site.cache_ttl ?? 5;
       const version = mb.cache_version || 0;
       if (!refresh && !check) {
         // KV 快路径（边缘读）；没配 KV 或没命中再走 D1 缓存
