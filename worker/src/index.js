@@ -632,12 +632,16 @@ export default {
     if (path === '/api/mailboxes' && method === 'POST') {
       const body = await readJson(req);
       if (body === null) return err('请求体不是合法 JSON。');
-      const email = String(body.email || '').trim();
-      const password = normalizeMbPass(body.password);
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err('邮箱地址格式不对。');
-      if (!password) return err('请填写登录密码或授权码（QQ 用授权码，Gmail 用应用专用密码）。');
       // ---------- 域名邮箱（Henna / Cloud Mail / Mango-Mail，v33/v39）：不走 IMAP/SMTP，走面板 HTTP API ----------
       const kind = (body.kind === 'henna' || body.kind === 'cloudmail' || body.kind === 'mangomail') ? body.kind : 'imap';
+      // 域名邮箱批量加：emails 数组（一行一个地址）；单加时沿用 email 字段。
+      const batchEmails = (kind !== 'imap' && Array.isArray(body.emails))
+        ? [...new Set(body.emails.map((e) => String(e || '').trim().toLowerCase()).filter(Boolean))]
+        : [];
+      const email = String(body.email || '').trim();
+      const password = normalizeMbPass(body.password);
+      if (!batchEmails.length && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err('邮箱地址格式不对。');
+      if (!password) return err('请填写登录密码或授权码（QQ 用授权码，Gmail 用应用专用密码）。');
       if (kind !== 'imap') {
         const panel = kind === 'henna' ? hennaPanelUrl(body.panel_url) : kind === 'mangomail' ? mangoPanelUrl(body.panel_url) : cloudmailPanelUrl(body.panel_url);
         const panelLogin = String(body.panel_login || '').trim();
@@ -645,12 +649,12 @@ export default {
         if (!panel) return err('面板地址没填。');
         if (!panelLogin) return err('登录账号没填。');
         if (!panelPass) return err('面板登录密码没填。');
-        const mb = {
+        const makeApiMb = (addr) => ({
           id: 'mb_' + hexEncode(randomBytes(8)),
           kind,
           group_name: String(body.group_name || '').trim(),
-          email,
-          address: email,
+          email: addr,
+          address: addr,
           imap_host: '',
           imap_port: 993,
           imap_enc: 'ssl',
@@ -665,13 +669,33 @@ export default {
           status: 'ok',
           sort: parseInt(body.sort || 0, 10),
           created_at: Date.now(),
-        };
-        // 先测连接，通了才存（和 IMAP 添加一样）。
-        const [testOk, testMsg] = kind === 'henna'
-          ? await hennaTest(panel, panelLogin, panelPass, email)
+        });
+        const testApiAddr = (addr) => kind === 'henna'
+          ? hennaTest(panel, panelLogin, panelPass, addr)
           : kind === 'mangomail'
-            ? await mangoTest(panel, panelLogin, panelPass, email)
-            : await cloudmailTest(panel, panelLogin, panelPass, email);
+            ? mangoTest(panel, panelLogin, panelPass, addr)
+            : cloudmailTest(panel, panelLogin, panelPass, addr);
+        // 批量：逐个测连接，通的存下来，不通的逐个报原因；已加过的跳过。
+        if (batchEmails.length > 1) {
+          const existing = new Set((await listMailboxes(env.DB)).map((m) => String(m.email || '').toLowerCase()));
+          const added = [];
+          const failed = [];
+          for (const addr of batchEmails) {
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(addr)) { failed.push({ email: addr, error: '邮箱地址格式不对。' }); continue; }
+            if (existing.has(addr)) { failed.push({ email: addr, error: '这个邮箱已经加过了。' }); continue; }
+            const [testOk, testMsg] = await testApiAddr(addr);
+            if (!testOk) { failed.push({ email: addr, error: '连接测试失败：' + testMsg }); continue; }
+            const mb = makeApiMb(addr);
+            mb.pass_enc = await encryptCred(panelPass, credKey);
+            await saveMailbox(env.DB, mb);
+            existing.add(addr);
+            added.push(publicMailbox(mb));
+          }
+          return done(json({ ok: true, added, failed }));
+        }
+        const mb = makeApiMb(email);
+        // 先测连接，通了才存（和 IMAP 添加一样）。
+        const [testOk, testMsg] = await testApiAddr(email);
         if (!testOk) return err('连接测试失败：' + testMsg);
         mb.pass_enc = await encryptCred(panelPass, credKey);
         await saveMailbox(env.DB, mb);

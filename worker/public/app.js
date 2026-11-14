@@ -29,7 +29,7 @@ const dtfYM = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Shanghai', year
 
 // 前端版本号：每次发版改这里，侧栏底部会显示出来，
 // 方便确认浏览器跑的是不是最新版（旧标签页会显示旧版本号）。
-const APP_VERSION = 'v39';
+const APP_VERSION = 'v40';
 function parseMailDate(raw) { const t = Date.parse(raw || ''); return isNaN(t) ? 0 : t; }
 // 列表里显示的时间：这封信被本站收到的时间（received_at，不是发信时间），
 // 这样一眼就能看出从发信到本站收到隔了多久。老数据没有 received_at 时回落到发信时间。
@@ -1426,21 +1426,21 @@ function renderMailboxesView(main) {
 
 // 添加邮箱独立页（照 S00 的做法：单独一页，不嵌在管理页下面）。
 // 新加和编辑共用一张表单：MB_EDIT_ID 为空是新加，不为空是改登录方式 / 凭据。
-// 邮箱类型三选：普通邮箱走 IMAP/SMTP；Henna / Cloud Mail 域名邮箱没有 IMAP/SMTP，
-// 走面板 HTTP 接口，只填面板地址 + 登录账号 + 面板密码。
+// 邮箱类型四选：普通邮箱走 IMAP/SMTP；Henna / Cloud Mail / Mango-Mail 域名邮箱没有 IMAP/SMTP，
+// 走面板 HTTP 接口，只填面板地址 + 登录账号 + 面板密码；新加域名邮箱时可一次加多个地址。
 function mbFormHtml(order, isEdit) {
   return '<div class="card"><h2 id="mbFormTitle">' + (isEdit ? '修改登录方式 / 凭据' : '添加邮箱') + '</h2>'
     + '<p class="muted">先选邮箱类型，再填凭据。保存时先测连接，通了才存。授权码粘贴时带了空格会自动去掉。</p>'
     + '<div id="mbFormErr"></div>'
     + '<form id="mbForm" autocomplete="off">'
     + '<label>邮箱类型</label><span class="seg" id="mb_kind_seg"><button type="button" data-kind="imap" class="on">普通邮箱（IMAP）</button><button type="button" data-kind="henna">Henna 域名邮箱</button><button type="button" data-kind="cloudmail">Cloud Mail 域名邮箱</button><button type="button" data-kind="mangomail">Mango-Mail 域名邮箱</button></span>'
-    + '<div id="mb_email_wrap"><label>邮箱地址</label><input type="email" id="mb_email" placeholder="如 xxx@qq.com" autocomplete="off" required></div>'
+    + '<div id="mb_email_wrap"><label>邮箱地址</label><input type="email" id="mb_email" placeholder="如 xxx@qq.com" autocomplete="off" required><textarea id="mb_emails" rows="5" placeholder="一行一个邮箱地址，如&#10;cfmail@151819.xyz&#10;cfmail01@151819.xyz" style="display:none;width:100%" autocomplete="off"></textarea><p class="muted" id="mb_emails_hint" style="display:none">域名邮箱一次可加多个：一行一个地址，共用上面的面板地址、登录账号和密码，保存时逐个测连接，通的存下来、不通的会列出来。</p></div>'
     + '<div id="mb_api_sec" style="display:none">'
     + '<label>面板地址</label><input type="text" id="mb_panel_url" placeholder="https://你的域名邮箱面板地址" autocomplete="off">'
     + '<label>登录账号</label><input type="text" id="mb_panel_login" placeholder="登面板用的账号（一般是邮箱地址）" autocomplete="off">'
     + '<label>面板登录密码</label>'
     + '<div style="display:flex;gap:8px;align-items:center"><input type="password" id="mb_panel_pass" placeholder="登面板用的密码" autocomplete="new-password" style="flex:1"><button type="button" class="btn ghost sm" id="mb_panel_pass_toggle" style="white-space:nowrap">👁 显示</button></div>'
-    + '<p class="muted" id="mb_api_note">域名邮箱没有 IMAP/SMTP，邮件存在面板自己的数据库里，这里走面板的 HTTP 接口收发。一条记录只管一个邮箱地址。</p>'
+    + '<p class="muted" id="mb_api_note">域名邮箱没有 IMAP/SMTP，邮件存在面板自己的数据库里，这里走面板的 HTTP 接口收发。一条记录只管一个邮箱地址；一次可加多个地址，每个地址单独存一条记录。</p>'
     + '</div>'
     + '<div id="mb_imap_sec">'
     + '<label id="mb_provider_label">厂商 / 域名（选了自动填服务器，也可手动改）</label><div id="mb_provider_wrap"><select id="mb_provider">'
@@ -1573,6 +1573,19 @@ function detectGroupForEmail(email) {
   return '';
 }
 
+// 批量地址解析：一行一个，也认逗号/分号/空格分隔；去空白、去重（不分大小写）、去空行。
+function parseBatchEmails(text) {
+  const out = [];
+  const seen = new Set();
+  String(text || '').split(/[\s,;；，、]+/).forEach((s) => {
+    const a = s.trim().toLowerCase();
+    if (!a || seen.has(a)) return;
+    seen.add(a);
+    out.push(a);
+  });
+  return out;
+}
+
 // 邮箱类型切换：域名邮箱显示面板地址 + 登录账号 + 面板密码，藏起 IMAP 那套；
 // 普通邮箱反过来。面板地址默认填好，换类型时也跟着换（自己改过的地址不覆盖）。
 // 域名邮箱时“邮箱地址”栏移到面板登录密码下面；普通邮箱时放回类型选择下面。
@@ -1591,6 +1604,20 @@ function syncKindUI(kind) {
     } else if (apiSec && apiSec.parentElement) {
       apiSec.parentElement.insertBefore(emWrap, apiSec);
     }
+  }
+  // 新加域名邮箱时，邮箱地址栏换成多行输入（一行一个，可一次加多个）；
+  // 普通邮箱和编辑已有邮箱时仍是单个输入框。
+  const emInp = $('#mb_email');
+  const emList = $('#mb_emails');
+  const emHint = $('#mb_emails_hint');
+  const batchMode = isApi && !MB_EDIT_ID;
+  if (emInp) emInp.style.display = batchMode ? 'none' : '';
+  if (emList) emList.style.display = batchMode ? '' : 'none';
+  if (emHint) emHint.style.display = batchMode ? '' : 'none';
+  if (!batchMode && emList && emInp) {
+    // 从批量切回单个时，多行里只有一个地址就顺手带过去。
+    const one = parseBatchEmails(emList.value);
+    if (one.length === 1 && !emInp.value.trim()) emInp.value = one[0];
   }
   // 分组栏跟着邮箱类型走：普通邮箱放厂商/域名下面，域名邮箱放回保存按钮上面；
   // 域名邮箱新建时，分组默认配到它对应的域名邮箱分组（编辑时不动已存的分组）。
@@ -1789,13 +1816,19 @@ function wireMbForm() {
     const errBox = $('#mbFormErr');
     if (errBox) errBox.innerHTML = '';
     const btn = $('#mbSaveBtn');
-    const email = $('#mb_email').value.trim();
     const kind = mbKind();
+    // 新加域名邮箱时，地址从多行框里取（一行一个，可一次加多个）。
+    const batchAddrs = (!MB_EDIT_ID && kind !== 'imap') ? parseBatchEmails($('#mb_emails') ? $('#mb_emails').value : '') : [];
+    const email = batchAddrs.length ? batchAddrs[0] : $('#mb_email').value.trim();
     let group = $('#mb_group').value;
     if (group === '__new__') group = $('#mb_newgroup').value.trim();
     const flashErr = (msg) => { errBox.innerHTML = '<div class="flash err" title="点一下去掉这条提示">' + esc(msg) + ' <span style="float:right">✕</span></div>'; };
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { flashErr('邮箱地址格式不对。'); return; }
-    // ---------- 域名邮箱（Henna / Cloud Mail）：面板地址 + 登录账号 + 面板密码，不填 IMAP/SMTP ----------
+    const flashList = (title, items) => { errBox.innerHTML = '<div class="flash err" title="点一下去掉这条提示">' + esc(title) + '<br>' + items.map((x) => esc(x)).join('<br>') + ' <span style="float:right">✕</span></div>'; };
+    if (batchAddrs.length > 1) {
+      const bad = batchAddrs.filter((a) => !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a));
+      if (bad.length) { flashList('这几个地址格式不对：', bad); return; }
+    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { flashErr('邮箱地址格式不对。'); return; }
+    // ---------- 域名邮箱（Henna / Cloud Mail / Mango-Mail）：面板地址 + 登录账号 + 面板密码，不填 IMAP/SMTP ----------
     if (kind !== 'imap') {
       const panelUrl = $('#mb_panel_url').value.trim();
       const panelLogin = $('#mb_panel_login').value.trim();
@@ -1824,6 +1857,30 @@ function wireMbForm() {
       }
       if (!panelPass) { flashErr('面板登录密码没填。'); return; }
       body.password = panelPass;
+      // 批量加：一次发多个地址，后端逐个测连接，通的存、不通的逐个报原因。
+      if (batchAddrs.length > 1) {
+        body.emails = batchAddrs;
+        delete body.email;
+        btn.disabled = true;
+        btn.textContent = '正在逐个测试连接…';
+        try {
+          const d = await postJson('/api/mailboxes', body);
+          if (!d.ok) throw new Error(d.err || '添加失败。');
+          const added = d.added || [];
+          const failed = d.failed || [];
+          if (added.length) toast('已添加 ' + added.length + ' 个邮箱' + (failed.length ? '，' + failed.length + ' 个没加上' : '') + '。');
+          if (failed.length) flashList('没加上的 ' + failed.length + ' 个：', failed.map((f) => f.email + '（' + f.error + '）'));
+          if (!added.length) { btn.disabled = false; btn.textContent = '保存邮箱'; return; }
+          await loadMailboxes();
+          renderSidebar();
+          renderAddMailboxView($('#main'));
+        } catch (err) {
+          flashErr(err.message || '添加失败。');
+          btn.disabled = false;
+          btn.textContent = '保存邮箱';
+        }
+        return;
+      }
       btn.disabled = true;
       btn.textContent = '正在测试连接…';
       try {
