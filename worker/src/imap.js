@@ -513,73 +513,107 @@ export class ImapClient {
   }
 
   async uids() {
-    const r = await this.cmd('UID SEARCH ALL');
-    if (!r.ok) return [];
-    return this.parseSearchLines(r.lines);
+    return this.searchUids('UID SEARCH ALL');
   }
 
   // 取某天之后到达的邮件 UID（IMAP SINCE 按到达时间算，含当天）：since 是 'D-Mon-YYYY'。
   async uidsSince(since) {
-    const r = await this.cmd(`UID SEARCH SINCE ${since}`);
-    if (!r.ok) return [];
-    return this.parseSearchLines(r.lines);
+    return this.searchUids(`UID SEARCH SINCE ${since}`);
+  }
+
+  // 跑两遍搜索取并集：QQ 的 SEARCH 偶尔会漏回一部分 UID（两次同样的搜索返回的集合
+  // 互不重叠），只跑一遍就会漏信；两遍都失败才返回空。
+  async searchUids(command) {
+    const r1 = await this.cmd(command);
+    const a = r1.ok ? this.parseSearchLines(r1.lines) : [];
+    const r2 = await this.cmd(command);
+    const b = r2.ok ? this.parseSearchLines(r2.lines) : [];
+    return [...new Set([...a, ...b])].sort((x, y) => x - y);
   }
 
   // 批量取列表：一批 UID 一条 FETCH，同时取 ENVELOPE 和原始 From 头。
   // 一次最多 40 个 UID 发一条命令，多的分批取（取信时间范围时一次可能取几百封）。
+  // 把一次 UID FETCH 的回应行解析成列表行（供 fetchList 与补取共用）。
+  parseFetchChunk(lines) {
+    const rows = [];
+    for (const line of lines) {
+      const m = line.match(/^\* \d+ FETCH \(UID (\d+)/);
+      if (!m) continue;
+      const uid = parseInt(m[1], 10);
+      const seen = /FLAGS \(([^)]*)\)/.test(line) && /\\Seen/i.test(line.match(/FLAGS \(([^)]*)\)/)[1]);
+      const env = parseEnvelopeFromLine(line);
+      // From 头优先（QQ 的 ENVELOPE 地址常缺 mailbox），ENVELOPE 备份
+      let fromName = '';
+      let fromAddr = '';
+      const hm = line.match(/BODY\[HEADER\.FIELDS \(FROM\)\] (?:\{\d+\}\s*)?([\s\S]*?)(?:\)\s*)$/);
+      if (hm) {
+        let fromRaw = hm[1].trim();
+        const fq = fromRaw.match(/^"((?:\\.|[^"\\])*)"$/);
+        if (fq) fromRaw = fq[1].replace(/\\(.)/g, '$1');
+        const headers = parseHeaders(fromRaw);
+        if (headers.from) {
+          const p = parseAddressHeader(decodeHeader(headers.from));
+          fromName = p.name;
+          fromAddr = p.addr;
+        }
+      }
+      if (!fromAddr) {
+        const f = env.from[0] || { name: '', mailbox: '', host: '' };
+        fromName = decodeHeader(f.name || '');
+        fromAddr = f.mailbox && f.host ? `${f.mailbox}@${f.host}` : (f.mailbox || '');
+      }
+      if (!fromName) fromName = decodeHeader((env.from[0] || {}).name || '');
+      // INTERNALDATE 是信真正到达邮箱服务器的时间（不是发信时间，也不是本站第一次看到它的时间）：
+      // 列表里显示的“收到时间”就该用它，不然本站第一次取回的旧信会显示成今天、堆到“本月”里。
+      const im = line.match(/INTERNALDATE "([^"]+)"/);
+      const arrived = im ? imapInternalToIso(im[1]) : '';
+      rows.push({
+        uid,
+        seen,
+        date: env.date,
+        arrived,
+        subject: decodeHeader(env.subject),
+        from_name: displayName(fromName, fromAddr),
+        from_addr: fromAddr,
+        to: addrListToAddrs(env.to).join(', '),
+        snippet: '',
+      });
+    }
+    return rows;
+  }
+
+  // 批量取列表：一批 UID 一条 FETCH，同时取 ENVELOPE 和原始 From 头。
+  // 一次最多 40 个 UID 发一条命令，多的分批取（取信时间范围时一次可能取几百封）。
+  // 失败的块重试 2 次，取完再把没取回来的 UID 补取 2 轮——QQ 的 IMAP 偶尔会整块丢回应
+  // 或漏回一部分 UID，静默跳过就会漏信：v47 复测里 3 个月和 1 年两次取信，
+  // 9 月、8 月的邮件互不重叠（并集至少 54 封、单次只取回 46 封），就是这么漏的。
   async fetchList(uids) {
     const out = [];
+    const got = new Set();
     const clean = [...new Set(uids.map((u) => parseInt(u, 10)).filter((u) => u > 0))];
+    const take = (rows) => { for (const row of rows) { if (!got.has(row.uid)) { out.push(row); got.add(row.uid); } } };
     for (let base = 0; base < clean.length; base += 40) {
       const batch = clean.slice(base, base + 40);
       for (let start = 0; start < batch.length; start += 10) {
-      const chunk = batch.slice(start, start + 10);
-      const r = await this.cmd(`UID FETCH ${chunk.join(',')} (UID FLAGS INTERNALDATE ENVELOPE BODY.PEEK[HEADER.FIELDS (FROM)])`);
-      if (!r.ok) continue;
-      for (const line of r.lines) {
-        const m = line.match(/^\* \d+ FETCH \(UID (\d+)/);
-        if (!m) continue;
-        const uid = parseInt(m[1], 10);
-        const seen = /FLAGS \(([^)]*)\)/.test(line) && /\\Seen/i.test(line.match(/FLAGS \(([^)]*)\)/)[1]);
-        const env = parseEnvelopeFromLine(line);
-        // From 头优先（QQ 的 ENVELOPE 地址常缺 mailbox），ENVELOPE 备份
-        let fromName = '';
-        let fromAddr = '';
-        const hm = line.match(/BODY\[HEADER\.FIELDS \(FROM\)\] (?:\{\d+\}\s*)?([\s\S]*?)(?:\)\s*)$/);
-        if (hm) {
-          let fromRaw = hm[1].trim();
-          const fq = fromRaw.match(/^"((?:\\.|[^"\\])*)"$/);
-          if (fq) fromRaw = fq[1].replace(/\\(.)/g, '$1');
-          const headers = parseHeaders(fromRaw);
-          if (headers.from) {
-            const p = parseAddressHeader(decodeHeader(headers.from));
-            fromName = p.name;
-            fromAddr = p.addr;
-          }
+        const chunk = batch.slice(start, start + 10);
+        let rows = null;
+        for (let attempt = 0; attempt < 3 && rows === null; attempt++) {
+          const r = await this.cmd(`UID FETCH ${chunk.join(',')} (UID FLAGS INTERNALDATE ENVELOPE BODY.PEEK[HEADER.FIELDS (FROM)])`);
+          if (r.ok) rows = this.parseFetchChunk(r.lines);
+          else if (attempt < 2) await new Promise((res) => setTimeout(res, 500));
         }
-        if (!fromAddr) {
-          const f = env.from[0] || { name: '', mailbox: '', host: '' };
-          fromName = decodeHeader(f.name || '');
-          fromAddr = f.mailbox && f.host ? `${f.mailbox}@${f.host}` : (f.mailbox || '');
-        }
-        if (!fromName) fromName = decodeHeader((env.from[0] || {}).name || '');
-        // INTERNALDATE 是信真正到达邮箱服务器的时间（不是发信时间，也不是本站第一次看到它的时间）：
-        // 列表里显示的“收到时间”就该用它，不然本站第一次取回的旧信会显示成今天、堆到“本月”里。
-        const im = line.match(/INTERNALDATE "([^"]+)"/);
-        const arrived = im ? imapInternalToIso(im[1]) : '';
-        out.push({
-          uid,
-          seen,
-          date: env.date,
-          arrived,
-          subject: decodeHeader(env.subject),
-          from_name: displayName(fromName, fromAddr),
-          from_addr: fromAddr,
-          to: addrListToAddrs(env.to).join(', '),
-          snippet: '',
-        });
+        if (rows) take(rows);
       }
     }
+    let missing = clean.filter((u) => !got.has(u));
+    for (let round = 0; round < 2 && missing.length; round++) {
+      for (let start = 0; start < missing.length; start += 5) {
+        const chunk = missing.slice(start, start + 5);
+        const r = await this.cmd(`UID FETCH ${chunk.join(',')} (UID FLAGS INTERNALDATE ENVELOPE BODY.PEEK[HEADER.FIELDS (FROM)])`);
+        if (!r.ok) continue;
+        take(this.parseFetchChunk(r.lines));
+      }
+      missing = clean.filter((u) => !got.has(u));
     }
     const snips = await this.fetchSnippets(out.map((r) => r.uid));
     for (const row of out) row.snippet = snips[row.uid] || '';
