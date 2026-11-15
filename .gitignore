@@ -14,3 +14,6 @@ preview-*.png
 # Worker 本地开发：wrangler dev 的本地 D1/KV/R2 状态与依赖
 worker/.wrangler/
 worker/node_modules/
+
+# 渲染后的 Worker 配置：含真实 D1/KV ID，部署时脚本生成，绝不要提交
+worker/wrangler.rendered.jsonc
