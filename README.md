@@ -1,8 +1,12 @@
-# Mail Center — 芒果邮箱管理中心
+# Mail Center — 聚合邮箱管理中心
+
+![PixPin_2026-11-16_22-24-02.png](https://tuchuang-260328-cloudflare-imgbed.pages.dev/file/1794839254452_PixPin_2026-11-16_22-24-02.png)
 
 一个 PHP 小程序（无数据库、无 Composer），**只登一个页面就能管所有邮箱**：收件箱、读信、回复、转发、写信、删除、标记垃圾邮件都在本站完成，不用再一个个登各家邮箱。
 
 支持 QQ、163、Gmail、Outlook、DNSHE 等 IMAP/SMTP 邮箱，也能接没有 IMAP 的自建面板（Henna、Cloud Mail 走 HTTP API），新邮件还能推 Telegram 通知。
+
+![PixPin_2026-11-16_22-25-05.png](https://tuchuang-260328-cloudflare-imgbed.pages.dev/file/1794839293327_PixPin_2026-11-16_22-25-05.png)
 
 ## 功能
 
