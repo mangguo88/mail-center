@@ -26,6 +26,8 @@
 
 ## 部署前要改的三处（只改你自己的值，别的不用动）
 
+> **Worker 方式（推荐）不用改代码**：D1/KV 的 ID 不写进 `worker/wrangler.jsonc`（里面只留占位符），在 Cloudflare 面板 → Workers → `mail-center` → Settings → Build → Build variables and secrets 里加 `D1_ID` / `KV_ID`（都选机密），见 [DEPLOY-WORKER-FREE.md](DEPLOY-WORKER-FREE.md) 第 4、5 节。R2 桶名直接写在配置里，不用填。
+
 1. **Outlook 微软登录**：`manage/ms_oauth.php` 里的 `MS_REDIRECT_URI` 改成你自己的域名（`https://你的域名/oauth.php?step=ms_callback`），并且去 Azure 注册的应用里把重定向 URI 改成一模一样的，差一个字微软就报不匹配。设置页会原样显示这个值，复制去填就行。
 2. **TG 通知**：设置页 → 消息推送，填你自己的 chat_id + Bot Token（去 @BotFather 建机器人、@userinfobot 查 chat_id），或者填你自己部署的 Worker 中转地址。代码里没有写死任何人的 Worker。
 3. **域名邮箱（Henna / Cloud Mail 等）**：添加邮箱时面板地址填你自己的（比如你自己的 Henna 部署地址），代码里没有写死任何人的面板。
@@ -43,10 +45,9 @@ manage/                  ← PHP 程序本体（index.php 主程序、imap.php �
                            henna.php、cloudmail.php、adapters.php 注册表、
                            adapter-template.php 适配器模板、oauth.php、ms_oauth.php）
 ADAPTERS.md              ← 自己加一种域名邮箱的扩展文档
-Dockerfile               ← CF Containers 用的镜像
-wrangler.toml / src/     ← CF Worker（转发请求 + 每 5 分钟 TG 轮询）
-cf/                      ← 容器里的 Nginx 配置、入口脚本、R2 同步脚本
-.github/workflows/       ← 自动部署（deploy-cf.yml 推 CF，deploy.yml 推 VPS/Serv00）
+worker/                  ← 纯 Worker 版（推荐）：wrangler.jsonc、src/、public/、schema.sql、scripts/render-wrangler.mjs
+Dockerfile / wrangler.toml / src/ / cf/ ← CF Containers 旧方案（已放弃，不用管）
+.github/workflows/       ← 旧的 GitHub Actions 部署文件（Worker 版已改走 Cloudflare 面板直连 Git，不再用）
 DEPLOY-*.md              ← 各部署方式的教程
 ```
 

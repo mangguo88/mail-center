@@ -4,6 +4,7 @@
 > **部署方式**：Cloudflare 面板直连 Git（Workers Builds），`git push` 后自动部署。
 > **适合谁**：想自己搭一个 Mail Center 的人。照着做，不用懂代码也能部署完。
 > **当前版本**：Worker 版 v51（2026-11-14）。PHP 版、Containers 版是旧路，本教程不讲。
+> **顺序提醒**：按 0 → 13 的顺序做，不要跳步。最容易错的是第 4、5 节的顺序：**先连 Git 把 Worker 建出来（第 4 节），再去这个 Worker 里加构建变量（第 5 节），最后重试部署**。Worker 还没建出来之前，面板里没有地方可以填构建变量。
 
 ---
 
@@ -24,6 +25,7 @@
 - **数据存在哪**：邮箱账号和凭据存在 D1（加密存）；列表缓存放 KV；邮件全文和附件放 R2。
 - **要花多少钱**：$0。免费额度见第 12 节，个人用绰绰有余。
 - **部署后得到什么**：一个网址（`https://mail-center.<你的子域名>.workers.dev`），打开就能登录、加邮箱、收发信。
+- **这次部署要改代码吗**：**不用改任何代码文件**。你要填的东西（D1/KV 的 ID、面板密码、TG 机器人）全部填在 Cloudflare 面板里，不写进仓库。仓库里的 `worker/wrangler.jsonc` 只写占位符，不写真实 ID。
 
 ---
 
@@ -50,7 +52,7 @@ Cloudflare 注册：打开 [dash.cloudflare.com](https://dash.cloudflare.com)，
 
 ## 3. 在 Cloudflare 建三个存储（D1、KV、R2）
 
-三个存储各建一次，名字按下表填。建完把 D1 和 KV 的 ID 记下来，第 4 节要填到 Cloudflare 面板的**构建变量**里（不是写进代码文件）。
+三个存储各建一次，名字按下表填。建完把 D1 和 KV 的 ID 记下来，第 5 节要填到 Cloudflare 面板的**构建变量**里（不是写进代码文件）。
 
 | 存储 | 名字 | 用来存什么 |
 | --- | --- | --- |
@@ -63,67 +65,48 @@ Cloudflare 注册：打开 [dash.cloudflare.com](https://dash.cloudflare.com)，
 1. Cloudflare 面板左侧 → **Workers & Pages** → **D1**（有的面板在 Storage & databases → D1）。
 2. 点 **Create database**。
 3. Database name 填 `mail-center-db`，点 **Create**。
-4. 建好后在数据库页面能看到 **Database ID**（一串 `xxxxxxxx-xxxx-...` 格式的字符），**复制下来**。
+4. 建好后在数据库页面能看到 **Database ID**（一串 `xxxxxxxx-xxxx-...` 格式的字符），**复制下来**，第 5 节要用。
 
-> ⚠️ 数据库名必须叫 `mail-center-db`，因为部署脚本里写的是这个名字（`wrangler d1 execute mail-center-db ...`）。改名的话，第 4 节的 `worker/package.json` 里那句也要跟着改。
+> ⚠️ 数据库名必须叫 `mail-center-db`，因为部署脚本里写的是这个名字（`worker/package.json` 里 `deploy:builds` 和 `migrate` 两条命令都写着 `wrangler d1 execute mail-center-db ...`）。改名的话，这两条命令也要跟着改。
 
 ### 3.2 建 KV 命名空间
 
 1. 左侧 → **Workers & Pages** → **KV**（或 Storage & databases → KV）。
 2. 点 **Create a namespace**。
 3. Namespace name 填 `mail-center-cache`，点 **Add**。
-4. 列表里找到它，**复制它的 ID**（同样是一串字符）。
+4. 列表里找到它，**复制它的 ID**（同样是一串字符），第 5 节要用。
 
 ### 3.3 建 R2 桶
 
 1. 左侧 → **R2** → 点 **Create bucket**。
 2. Bucket name 填 `mail-center-store`，Location 选默认（Automatic），点 **Create bucket**。
-3. R2 桶**没有 UUID，桶名本身就是标识**，记下桶名就行。
+3. R2 桶**没有 UUID，桶名本身就是标识**，记下桶名就行，第 5 节不用填它。
 
 ---
 
-## 4. 把 D1 / KV 的 ID 填进面板的构建变量（不用改代码）
+## 4. 连 Workers Builds（Cloudflare 面板直连 Git，先把 Worker 建出来）
 
-**这一步先做，再去第 5 节点部署。** 没加这两个变量就部署，会在第一步报错停下——这是故意设的保护，不是故障。
-
-1. Cloudflare 面板左侧 → **Workers & Pages** → 点进 `mail-center` 这个 Worker。
-2. 点顶上的 **Settings（设置）**，左边找到 **Build（构建）**，里面有一栏 **Build variables and secrets（构建变量和机密）**。
-3. 点 **Add variable（添加变量）**，填名字 `D1_ID`，值填第 3 节复制的 D1 的 **Database ID**（D1 详情页上「数据库 ID」那一栏）。关键一步：同一个框里有个 **Type（类型）**，默认是 Variable（变量），点开选 **Secret（机密）** 再保存。选成机密后，值在构建日志里会被打码，看不到明文。
-4. 同样再加一个：名字 `KV_ID`，值填 KV 命名空间的 ID，类型也选 **Secret**。
-5. 确认两条都点了保存。保存后机密的值会变成小黑点，看不到明文，这是正常的。
-
-**注意别加错地方**：Settings 里还有一栏叫 **Variables and Secrets（变量和机密）**，那是运行时的变量，构建的时候看不到，放那儿部署还是会报错。构建变量（`D1_ID`、`KV_ID`）放 **Build** 下面那一栏；运行时变量（`MC_` 开头的那些，见第 7 节）才放 Variables and Secrets 那一栏。
-
-**为什么是这样，不直接改 `worker/wrangler.jsonc`：**
-
-- 仓库是公开的，`wrangler.jsonc` 里只能写**占位符**（`REPLACE_D1_DATABASE_ID` / `REPLACE_KV_NAMESPACE_ID`），不能写真实 ID。以前的版本写的是真实 ID，别人 Fork 一眼就能看到你的 D1/KV ID——ID 本身不是密码，光知道 ID 进不了你的 D1/KV，但不该放公开仓库，而且别人拿你的 ID 也部署不了（那些资源不在他的账号里）。
-- 每次部署，部署命令（`npm run deploy:builds`，定义在 `worker/package.json` 里）都会先跑 `worker/scripts/render-wrangler.mjs`，把你面板里这两个构建变量的值填进配置，再执行 D1 建表、再发布 Worker。所以每次部署配置里都有真实绑定，面板里的绑定不会再被删掉。
-- **Fork 的人一个文件都不用改**：在他自己的 Cloudflare 账号里建自己的 D1/KV/R2，再填他自己的 `D1_ID`、`KV_ID` 就行，代码一行都不用动，也永远看不到你的 ID。
-- **构建变量是存在面板上的**，跟代码推送、仓库同步都没关系，推代码动不到它们。以后更新代码不用重填。
-- **还有个保险**：如果有人把构建变量删了，部署会直接报错停下，不会静默把 Worker 清空。
-- R2 不用这样处理：桶名 `mail-center-store` 只是个名字，不同账号可以重名，不算敏感信息，直接写在配置里就行。
-- 本地想直接跑 `wrangler deploy` 的话：先在 shell 里 `export D1_ID=… KV_ID=…`（值去面板复制），再跑 `npm run deploy`，脚本会先渲染再部署；直接跑 `wrangler deploy` 会因为配置里是占位符而失败。
-
----
-
-## 5. 连 Workers Builds（Cloudflare 面板直连 Git，自动部署）
+这一步是把你的 Fork 连到 Cloudflare，让它以后每次 `git push` 都自动部署。**先做这一步，再做第 5 节**——Worker 建出来之前，面板里没有地方可以填构建变量。
 
 1. Cloudflare 面板左侧 → **Workers & Pages** → 点 **Create application**（或 **Create**）。
-2. 选 **Import a Git repository**（有的面板叫 Connect to Git / 从 Git 导入）。
+2. 选 **Import a Git repository**（有的面板叫 Connect to Git / 从 Git 导入）。**不要走 Create → Worker 手动新建**，那样连不上 Git，不会自动部署。
 3. 选 **GitHub**，按提示授权 Cloudflare 访问你的 GitHub（OAuth 授权，只读你的仓库列表；选仓库时只勾你 Fork 的那一个）。
 4. 选仓库 `<你的用户名>/mail-center`，分支选 **main**，点下一步。
 5. 按下面填构建设置（**一字不差**）：
 
-| 设置项 | 填什么 |
+| 设置项（面板上显示的名字） | 填什么 |
 | --- | --- |
-| Worker name | `mail-center`（名字随意，但建议和 `wrangler.jsonc` 里的 `name` 一致） |
+| Worker name | `mail-center`（名字随意，但建议和 `worker/wrangler.jsonc` 里的 `name` 一致） |
 | Root directory | `worker` |
 | Build command | `npm run build` |
 | Deploy command | `npm run deploy:builds` |
 | Watch paths | `worker/**` |
-| Build variables and secrets | 加 `D1_ID`、`KV_ID`（都选 Secret，见第 4 节；没加就先回去加好再部署） |
+| Build variables and secrets | **如果这个导入页面上就有这一栏**，直接在这里加 `D1_ID`、`KV_ID`（都选 Secret，值是第 3 节复制的那两个 ID，填法见第 5 节），加完跳过第 5 节；**如果这个页面上没有这一栏**，先留空，点 Save and Deploy，第一次构建会失败，这是正常的，做完第 5 节再重试 |
 
 6. 点 **Save and Deploy**（或 Deploy），等第一次构建跑完（一般 1–3 分钟）。
+7. **第一次构建失败是正常的**，不用慌：只要第 5 节的两个构建变量还没加，构建就会在第一步报错停下（见第 5 节末尾）。先去做第 5 节，再回来重试。
+
+> 不要新建 `wrangler.toml`。这个项目用的是 `wrangler.jsonc`，面板如果提示“更新 wrangler.toml”直接忽略。
 
 **这次部署实际干了三件事**（`npm run deploy:builds` 的定义在 `worker/package.json` 里）：
 
@@ -133,10 +116,39 @@ wrangler d1 execute mail-center-db --config ./wrangler.rendered.jsonc --file=./s
 wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
 ```
 
-> 不要新建 `wrangler.toml`。这个项目用的是 `wrangler.jsonc`，面板如果提示“更新 wrangler.toml”直接忽略。
+---
 
-- **怎么判断成功**：构建日志拉到尾部，看到 `Deployed` / `Current Version ID`，并且 Worker 详情页出现一个地址 `https://mail-center.<你的子域名>.workers.dev`，打开能看到登录页，就是成功了。
-- **如果构建失败**：先看构建日志的**尾部**，分清是哪一步失败——“D1 迁移成功”不代表 Worker 已发布。如果最后一步 `wrangler deploy` 被拒绝（曾出现错误码 10021），解法很简单：往仓库推一个空提交再触发一次构建（`git commit --allow-empty -m "retry deploy" && git push`），一般第二次就成功了。
+## 5. 加构建变量 D1_ID / KV_ID（在已经建好的 Worker 上），再重试部署
+
+### 5.1 加两个构建变量
+
+1. Cloudflare 面板左侧 → **Workers & Pages** → 点进 `mail-center` 这个 Worker（第 4 节刚建好的那个）。
+2. 点顶上的 **Settings（设置）**，左边找到 **Build（构建）**，里面有一栏 **Build variables and secrets（构建变量和机密）**。
+3. 点 **Add variable（添加变量）**，填名字 `D1_ID`，值填第 3 节复制的 D1 的 **Database ID**（D1 详情页上「数据库 ID」那一栏）。关键一步：同一个框里有个 **Type（类型）**，默认是 Variable（变量），点开选 **Secret（机密）** 再保存。选成机密后，值在构建日志里会被打码，看不到明文。
+4. 同样再加一个：名字 `KV_ID`，值填 KV 命名空间的 ID，类型也选 **Secret**。
+5. 确认两条都点了保存。保存后机密的值会变成小黑点，看不到明文，这是正常的。
+
+**注意别加错地方**：Settings 里还有一栏叫 **Variables and Secrets（变量和机密）**，那是运行时的变量，构建的时候看不到，放那儿部署还是会报错。构建变量（`D1_ID`、`KV_ID`）放 **Build** 下面那一栏；运行时变量（`MC_` 开头的那些，见第 7 节）才放 Variables and Secrets 那一栏。
+
+### 5.2 重试部署，看日志尾部确认成功
+
+1. 回到这个 Worker 的 **Deployments（部署）** 页，找到最新那次构建（一般是失败的那次），点 **Retry deployment（重试部署）**。
+2. 等它跑完（一般 1–3 分钟），把构建日志拉到**尾部**看结果。
+
+- **怎么判断成功**：日志尾部看到 `Deployed` / `Current Version ID`，并且 Worker 详情页出现一个地址 `https://mail-center.<你的子域名>.workers.dev`，打开能看到登录页，就是成功了。
+- **如果构建失败**：先看构建日志的**尾部**，分清是哪一步失败：
+  - 日志里有 `[render-wrangler] 缺构建变量：D1_ID、KV_ID`（或其中一个），说明第 5.1 节的变量没加对：名字拼错、加到运行时变量那一栏了、或者没点保存。回去按 5.1 节重加，再 Retry。
+  - “D1 迁移成功”不代表 Worker 已发布。如果最后一步 `wrangler deploy` 被拒绝（曾出现错误码 10021），解法很简单：往仓库推一个空提交再触发一次构建（`git commit --allow-empty -m "retry deploy" && git push`），一般第二次就成功了。
+
+### 5.3 为什么是这样，不直接改 `worker/wrangler.jsonc`
+
+- 仓库是公开的，`wrangler.jsonc` 里只能写**占位符**（`REPLACE_D1_DATABASE_ID` / `REPLACE_KV_NAMESPACE_ID`），不能写真实 ID。以前的版本写的是真实 ID，别人 Fork 一眼就能看到你的 D1/KV ID——ID 本身不是密码，光知道 ID 进不了你的 D1/KV，但不该放公开仓库，而且别人拿你的 ID 也部署不了（那些资源不在他的账号里）。
+- 每次部署，部署命令都会先跑 `worker/scripts/render-wrangler.mjs`，把你面板里这两个构建变量的值填进配置，再执行 D1 建表、再发布 Worker。所以每次部署配置里都有真实绑定，面板里的绑定不会再被删掉。
+- **Fork 的人一个文件都不用改**：在他自己的 Cloudflare 账号里建自己的 D1/KV/R2，再填他自己的 `D1_ID`、`KV_ID` 就行，代码一行都不用动，也永远看不到你的 ID。
+- **构建变量是存在面板上的**，跟代码推送、仓库同步都没关系，推代码动不到它们。以后更新代码不用重填。
+- **还有个保险**：如果有人把构建变量删了，部署会直接报错停下，不会静默把 Worker 清空。
+- R2 不用这样处理：桶名 `mail-center-store` 只是个名字，不同账号可以重名，不算敏感信息，直接写在配置里就行。
+- 本地想直接跑 `wrangler deploy` 的话：先在 shell 里 `export D1_ID=… KV_ID=…`（值去面板复制），再跑 `npm run deploy`，脚本会先渲染再部署；直接跑 `wrangler deploy` 会因为配置里是占位符而失败。
 
 ---
 
@@ -152,7 +164,7 @@ wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
 
 如果你想多一个能登录的口令（比如主密码不想告诉别人）：
 
-1. Cloudflare 面板 → Workers → `mail-center` → **Settings → Variables** → **Add variable**。
+1. Cloudflare 面板 → Workers → `mail-center` → **Settings → Variables and Secrets**（运行时变量那一栏，**不是** Build 下面那栏）→ **Add variable**。
 2. 变量名填 `MC_ADMIN_PASS`，值填一个新密码，保存（不用重新部署，保存后稍等片刻刷新生效）。
 3. 回到面板（还登录着的状态下）随便保存一次设置——这一步生成 `login_wrap`，之后这个 CF 密码就能登录了。
 4. 想收回时：删掉 `MC_ADMIN_PASS` 变量，再保存一次设置即可，数据库密码和邮箱凭据不动。
@@ -163,7 +175,7 @@ wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
 
 ## 7. 环境变量（可选，按需设）
 
-全部在 Cloudflare 面板 → Workers → `mail-center` → **Settings → Variables** 里加。**变量名就是下表左列，值按需填**；不填就用默认值（或在面板设置页里改）。
+全部在 Cloudflare 面板 → Workers → `mail-center` → **Settings → Variables and Secrets**（运行时变量那一栏）里加。**变量名就是下表左列，值按需填**；不填就用默认值（或在面板设置页里改）。
 
 | 变量名（面板上显示的名字） | 默认值 | 作用 |
 | --- | --- | --- |
@@ -252,6 +264,7 @@ wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
 - 每次部署都会跑 `schema.sql`（建表语句全是 `CREATE TABLE IF NOT EXISTS`，幂等，反复跑是安全的）。自己加表字段时也照这个写法，**不要写裸 `ALTER TABLE ADD COLUMN`**（重复跑会报错）。
 - **升版规矩**（改界面时容易踩的坑）：每次改版要同时改两处——`worker/public/app.js` 里的 `APP_VERSION`，和 `worker/public/index.html` 里 `app.js?v=版本号`；改了 `styles.css` 还要改 `styles.css?v=版本号`。只改一处，浏览器会缓存旧版，你看到的还是上一版。
 - **部署后还是旧版**：先看面板左栏底部的版本号，确认线上是不是新版；如果不是，等构建跑完再硬刷新（Ctrl+Shift+R）。多标签页混着旧版时，先核对版本号再判断。
+- **已经部署过、想按新办法改**：如果你是 2026-11-15 之前部署的，仓库里的 `wrangler.jsonc` 还写着真实 ID，拉取最新代码后，按第 5 节把 `D1_ID` / `KV_ID` 加到 Build 构建变量里再推一次，之后就不再需要改代码里的 ID 了。Git 历史里旧提交还留着旧 ID，ID 本身不是密码，不用重写历史。
 
 ---
 
@@ -271,6 +284,9 @@ wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
 
 ## 13. 常见问题
 
+**Q：第一次构建失败，日志里有 `[render-wrangler] 缺构建变量`？**
+A：构建变量没加对。回去按第 5 节检查：名字是不是 `D1_ID` / `KV_ID`（大小写不能错）、是不是加在 **Build** 下面那栏（不是运行时变量那栏）、是不是点了保存。加好后去 Deployments 点 **Retry deployment**，不用改代码。
+
 **Q：打开是登录页，`admin / 123456` 登不上？**
 A：这个默认账号只在**还没设过站点密码**时有效。设过之后只认你设的密码（或 CF 的 `MC_ADMIN_PASS`，见第 6 节）。如果密码忘了且所有设备都退出了，没有找回办法，只能删邮箱重加。
 
@@ -281,7 +297,7 @@ A：构建还没跑完。去 Workers Builds 看构建日志，等它显示成功
 A：D1 迁移成功 ≠ Worker 已发布。看日志尾部是不是最后一步 `wrangler deploy` 被拒绝（曾出现错误码 10021）。解法：推一个空提交重新触发一次构建。
 
 **Q：面板上绑了 D1/KV/R2，下次部署后绑定没了？**
-A：现在不会了：每次部署，部署命令都会先跑渲染脚本，把面板构建变量里的真实 ID 填进配置再部署，配置里每次都有真实绑定（见第 4 节）。只在面板绑、配置里没有，下次部署会被按配置文件同步删掉——2026-11-14 mango-mail 就是这么丢过一次绑定，登录直接报 internal error，后来改成占位符 + 构建变量才修好。`keep_vars: true` 只保护纯文本变量，不保护绑定。
+A：现在不会了：每次部署，部署命令都会先跑渲染脚本，把面板构建变量里的真实 ID 填进配置再部署，配置里每次都有真实绑定（见第 5 节）。只在面板绑、配置里没有，下次部署会被按配置文件同步删掉——2026-11-14 mango-mail 就是这么丢过一次绑定，登录直接报 internal error，后来改成占位符 + 构建变量才修好。`keep_vars: true` 只保护纯文本变量，不保护绑定。
 
 **Q：收件箱只显示一部分邮件？**
 A：先看两处：① 设置 → **取信时间范围**（`MC_INBOX_DAYS`），`0`=不限（只取最新 N 封），`90`=最近 3 个月的全部邮件；② **每页显示几封**（`MC_INBOX_LIMIT`），底栏“最新 N 封”是取回的总数，每页只放这么多封，剩下的在下一页（点“下页”）。先点一下刷新（↻）再看，刷新前读的是缓存。
@@ -310,7 +326,7 @@ A：不用管，不要新建。项目用 `wrangler.jsonc`。
 
 ```
 worker/                  ← Worker 版全部代码（部署只看这个目录）
-  wrangler.jsonc         ← Worker 配置：名字、D1/KV/R2 绑定、Cron、keep_vars（D1/KV 只写占位符，真值在面板构建变量里，见第 4 节）
+  wrangler.jsonc         ← Worker 配置：名字、D1/KV/R2 绑定、Cron、keep_vars（D1/KV 只写占位符，真值在面板构建变量里，见第 5 节）
   scripts/render-wrangler.mjs ← 部署时把构建变量填进配置的脚本（生成 wrangler.rendered.jsonc，不提交）
   package.json           ← 脚本：build / deploy / deploy:builds / migrate / render
   schema.sql             ← D1 建表（8 张表，全是 IF NOT EXISTS，幂等）
@@ -324,7 +340,7 @@ ADAPTERS.md              ← 自己加一种域名邮箱的扩展文档
 
 ## 安全提醒
 
-- 永远不要把凭据写进代码或提交进仓库：站点密码、邮箱授权码、Bot Token、API Key、CF 的 API Token 只填在面板或自己的环境里。
+- 永远不要把凭据写进代码或提交进仓库：站点密码、邮箱授权码、Bot Token、API Key、CF 的 API Token 只填在面板或自己的环境里。D1/KV 的 ID 也一样，只填面板构建变量（类型选机密），不写进 `wrangler.jsonc`。
 - API Token、Bot Token 这类值只显示一次，丢了就重新建一个，旧的马上作废；**已经贴到聊天记录或截图里的令牌要去后台删掉重建**。
 - 换域名、换服务器时，站点密码不用变；但站点密码是解密邮箱凭据的密钥，忘密码且全设备退出只能删邮箱重加。
 
