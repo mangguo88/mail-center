@@ -17,13 +17,11 @@
 - **Outlook 微软登录**：Outlook 个人邮箱只认 OAuth2，设置页填 Azure 应用的 Client ID / Secret 后，点“用微软账号登录添加”就行，令牌过期自动刷新。
 - **域名邮箱接入，可自己扩展**：没有 IMAP 的自建域名邮箱（Henna、Cloud Mail）走 HTTP API 接进来，一条记录管一个邮箱地址；别人有自己的域名邮箱面板，照着 `manage/adapter-template.php` 写一个适配器、在 `manage/adapters.php` 注册表里加一行就能接进来，不用改主程序（见 [ADAPTERS.md](ADAPTERS.md)）。
 
-## 纯 Worker 免费部署教程
+## 纯 Worker 部署
 
 > 
 > **部署方式**：Cloudflare 面板直连 Git（Workers Builds），`git push` 后自动部署。
-> 
-> **当前版本**：Worker 版 v51（2026-11-14）。PHP 版、Containers 版是旧路，本教程不讲。
-> **顺序提醒**：按 0 → 13 的顺序做，不要跳步。最容易错的是第 3、4 节的顺序：**先连 Git 把 Worker 建出来（第 4 节），再去这个 Worker 里加构建变量（第 5 节），最后重试部署**。
+
 
 ---
 
@@ -42,8 +40,6 @@
 ```
 
 - **数据存在哪**：邮箱账号和凭据存在 D1（加密存）；列表缓存放 KV；邮件全文和附件放 R2。
-- **部署后得到什么**：一个网址（`https://mail-center.<你的子域名>.workers.dev`），打开就能登录、加邮箱、收发信。
-- **这次部署要改代码吗**：**不用改任何代码文件**。你要填的东西（D1/KV 的 ID、面板密码、TG 机器人）全部填在 Cloudflare 面板里，不写进仓库。
 - 
 
 ---
@@ -57,7 +53,7 @@
 
 ### 2. 在 Cloudflare 建三个存储（D1、KV、R2）
 
-三个存储各建一次，名字按下表填。建完把 D1 和 KV 的 ID 记下来，第 4 节要填到 Cloudflare 面板的**构建变量**里（不是写进代码文件）。
+三个存储各建一次，名字按下表填。建完把 D1 和 KV 的 ID 记下来，第 4 节要填到 Cloudflare 面板的**构建变量**里。
 
 | 存储 | 名字 | 用来存什么 |
 | --- | --- | --- |
@@ -72,7 +68,6 @@
 3. Database name 填 `mail-center-db`，点 **Create**。
 4. 建好后在数据库页面能看到 **Database ID**（一串 `xxxxxxxx-xxxx-...` 格式的字符），**复制下来**，第 5 节要用。
 
-> ⚠️ 数据库名必须叫 `mail-center-db`，因为部署脚本里写的是这个名字（`worker/package.json` 里 `deploy:builds` 和 `migrate` 两条命令都写着 `wrangler d1 execute mail-center-db ...`）。改名的话，这两条命令也要跟着改。
 
 #### 3.2 建 KV 命名空间
 
@@ -111,15 +106,7 @@
 
 > 面板如果提示“更新 wrangler.toml”直接忽略。
 
-**这次部署实际干了三件事**（`npm run deploy:builds` 的定义在 `worker/package.json` 里）：
 
-```bash
-node scripts/render-wrangler.mjs  # 把面板构建变量 D1_ID / KV_ID 填进配置，生成 wrangler.rendered.jsonc
-wrangler d1 execute mail-center-db --config ./wrangler.rendered.jsonc --file=./schema.sql --remote  # 建 8 张表，幂等，可反复跑
-wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
-```
-
----
 
 ### 5. 加构建变量 D1\_ID / KV\_ID（在已经建好的 Worker 上），再重试部署
 
@@ -135,16 +122,6 @@ wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
 
 1. 回到这个 Worker 的 **Deployments（部署）** 页，找到最新那次构建（一般是失败的那次），点 **Retry deployment（重试部署）**。
 2. 等它跑完（一般 1–3 分钟），把构建日志拉到**尾部**看结果。
-
-#### 5.3 为什么是这样，不直接改 `worker/wrangler.jsonc`
-
-- 仓库是公开的，`wrangler.jsonc` 里只能写**占位符**（`REPLACE_D1_DATABASE_ID` / `REPLACE_KV_NAMESPACE_ID`），不能写真实 ID。以前的版本写的是真实 ID，别人 Fork 一眼就能看到你的 D1/KV ID——ID 本身不是密码，光知道 ID 进不了你的 D1/KV，但不该放公开仓库，而且别人拿你的 ID 也部署不了（那些资源不在他的账号里）。
-- 每次部署，部署命令都会先跑 `worker/scripts/render-wrangler.mjs`，把你面板里这两个构建变量的值填进配置，再执行 D1 建表、再发布 Worker。所以每次部署配置里都有真实绑定，面板里的绑定不会再被删掉。
-- **Fork 的人一个文件都不用改**：在他自己的 Cloudflare 账号里建自己的 D1/KV/R2，再填他自己的 `D1_ID`、`KV_ID` 就行，代码一行都不用动，也永远看不到你的 ID。
-- **构建变量是存在面板上的**，跟代码推送、仓库同步都没关系，推代码动不到它们。以后更新代码不用重填。
-- **还有个保险**：如果有人把构建变量删了，部署会直接报错停下，不会静默把 Worker 清空。
-- R2 不用这样处理：桶名 `mail-center-store` 只是个名字，不同账号可以重名，不算敏感信息，直接写在配置里就行。
-- 本地想直接跑 `wrangler deploy` 的话：先在 shell 里 `export D1_ID=… KV_ID=…`（值去面板复制），再跑 `npm run deploy`，脚本会先渲染再部署；直接跑 `wrangler deploy` 会因为配置里是占位符而失败。
 
 ---
 
@@ -180,10 +157,6 @@ wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
 | `MC_ADMIN_PASS` | （无） | 备用的登入密码，见第 6 节 |
 | `MC_INBOX_LIMIT` | 30 | 每页显示几封（5–100）；范围没开时一次就取这么多封，开着时按这个数翻页 |
 | `MC_INBOX_DAYS` | 0（不限） | 取信时间范围天数：`0`=不限（只取最新 N 封）；`30`/`90`/`180`/`365`=最近 1 个月/3 个月/半年/1 年的全部邮件 |
-|  |  |  |
-|  |  |  |
-|  |  |  |
-|  |  |  |
 
 **注意：**
 
@@ -252,23 +225,7 @@ wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
 
 ---
 
----
-
-### 11. 免费额度够不够
-
-| 项目 | 免费额度 | 本项目用量 |
-| --- | --- | --- |
-| 请求数 | 10 万/天 | 个人用 + Cron 每 5 分钟 288 次/天，远低于上限 |
-| CPU 时间 | 10ms/次（网络等待不计，超了报 error 1102） | 收发信主要是网络等待，实测够用 |
-| D1 | 5GB 存储；每天 500 万行读 / 10 万行写 | 个人量级够 |
-| KV | 每天 10 万读 / 1000 写 | 列表缓存一天写不了几次，够 |
-| R2 | 10GB 存储 | 邮件全文+附件，个人量级够 |
-| Cron 触发器 | 每账号 5 个 | 用 1 个（每 5 分钟） |
-| 自定义域名 | 免费 | 见第 10 节 |
-
----
-
-### 13. 常见问题
+### 11. 常见问题
 
 **Q：第一次构建失败，日志里有&#32;`[render-wrangler] 缺构建变量`？**
 A：构建变量没加对。回去按第 5 节检查：名字是不是 `D1_ID` / `KV_ID`（大小写不能错）、是不是加在 **Build** 下面那栏（不是运行时变量那栏）、是不是点了保存。加好后去 Deployments 点 **Retry deployment**，不用改代码。
@@ -307,22 +264,6 @@ A：先确认 Bot Token 和 chat\_id 填对了（Token 是 @BotFather 给的那�
 A：不用管，不要新建。项目用 `wrangler.jsonc`。
 
 ---
-
-### 附：目录结构
-
-```
-worker/                  ← Worker 版全部代码（部署只看这个目录）
-  wrangler.jsonc         ← Worker 配置：名字、D1/KV/R2 绑定、Cron、keep_vars（D1/KV 只写占位符，真值在面板构建变量里，见第 5 节）
-  scripts/render-wrangler.mjs ← 部署时把构建变量填进配置的脚本（生成 wrangler.rendered.jsonc，不提交）
-  package.json           ← 脚本：build / deploy / deploy:builds / migrate / render
-  schema.sql             ← D1 建表（8 张表，全是 IF NOT EXISTS，幂等）
-  src/                   ← 后端：index.js（路由）、imap.js、smtp.js、mime.js、
-                           crypto.js（加密）、db.js、cache.js、store.js、tg.js、
-                           henna.js、cloudmail.js、mangomail.js（三个域名邮箱适配器）
-  public/                ← 前端：index.html、app.js、styles.css（三栏界面）
-manage/                  ← PHP 版旧代码（Serv00 上跑的 v4.28.2，不动它）
-ADAPTERS.md              ← 自己加一种域名邮箱的扩展文档
-```
 
 ### 安全提醒
 
