@@ -1,14 +1,14 @@
 # Mail Center 纯 Worker 免费部署教程
 
-> **目标**：从 Fork 到能用，全程免费。**不用服务器、不用绑卡、不用 Workers Paid、不用 Containers。**
+> 
 > **部署方式**：Cloudflare 面板直连 Git（Workers Builds），`git push` 后自动部署。
-> **适合谁**：想自己搭一个 Mail Center 的人。照着做，不用懂代码也能部署完。
+> 
 > **当前版本**：Worker 版 v51（2026-11-14）。PHP 版、Containers 版是旧路，本教程不讲。
-> **顺序提醒**：按 0 → 13 的顺序做，不要跳步。最容易错的是第 4、5 节的顺序：**先连 Git 把 Worker 建出来（第 4 节），再去这个 Worker 里加构建变量（第 5 节），最后重试部署**。Worker 还没建出来之前，面板里没有地方可以填构建变量。
+> **顺序提醒**：按 0 → 13 的顺序做，不要跳步。最容易错的是第 3、4 节的顺序：**先连 Git 把 Worker 建出来（第 4 节），再去这个 Worker 里加构建变量（第 5 节），最后重试部署**。
 
 ---
 
-## 0. 先看懂：这东西由什么组成
+## 它由什么组成
 
 ```
 浏览器 ──HTTPS──> Cloudflare Worker（mail-center）
@@ -23,36 +23,22 @@
 ```
 
 - **数据存在哪**：邮箱账号和凭据存在 D1（加密存）；列表缓存放 KV；邮件全文和附件放 R2。
-- **要花多少钱**：$0。免费额度见第 12 节，个人用绰绰有余。
 - **部署后得到什么**：一个网址（`https://mail-center.<你的子域名>.workers.dev`），打开就能登录、加邮箱、收发信。
-- **这次部署要改代码吗**：**不用改任何代码文件**。你要填的东西（D1/KV 的 ID、面板密码、TG 机器人）全部填在 Cloudflare 面板里，不写进仓库。仓库里的 `worker/wrangler.jsonc` 只写占位符，不写真实 ID。
+- **这次部署要改代码吗**：**不用改任何代码文件**。你要填的东西（D1/KV 的 ID、面板密码、TG 机器人）全部填在 Cloudflare 面板里，不写进仓库。
+- 
 
 ---
 
-## 1. 准备：两个账号
-
-| 账号 | 用来干什么 | 要不要绑卡 |
-| --- | --- | --- |
-| **GitHub 账号** | Fork 代码，之后改代码 `git push` 就自动部署 | 不用 |
-| **Cloudflare 账号** | 建 D1 / KV / R2、连 Git 自动部署 | **不用**，免费计划就行 |
-
-Cloudflare 注册：打开 [dash.cloudflare.com](https://dash.cloudflare.com)，用邮箱注册即可。**全程不要在任何地方点“升级 / Add payment method”。**
-
----
-
-## 2. Fork 仓库
+## 1. Fork 仓库
 
 1. 打开 <https://github.com/mangguo88/mail-center>。
-2. 点右上角 **Fork** → **Create a new fork** → owner 选你自己的账号 → 点 **Create fork**。
-3. Fork 完成后，你的仓库地址就是 `https://github.com/<你的用户名>/mail-center`，后面都用它。
-
-> 别人部署**不需要 GitHub 令牌（PAT）**。公开仓库 + Cloudflare 面板连 Git 走 OAuth 授权，代码里没有放令牌的地方。PAT 只是原作者自己往仓库推代码时用的，部署的人不用管。
+2. 点右上角 **Fork** 
 
 ---
 
-## 3. 在 Cloudflare 建三个存储（D1、KV、R2）
+## 2. 在 Cloudflare 建三个存储（D1、KV、R2）
 
-三个存储各建一次，名字按下表填。建完把 D1 和 KV 的 ID 记下来，第 5 节要填到 Cloudflare 面板的**构建变量**里（不是写进代码文件）。
+三个存储各建一次，名字按下表填。建完把 D1 和 KV 的 ID 记下来，第 4 节要填到 Cloudflare 面板的**构建变量**里（不是写进代码文件）。
 
 | 存储 | 名字 | 用来存什么 |
 | --- | --- | --- |
@@ -86,12 +72,10 @@ Cloudflare 注册：打开 [dash.cloudflare.com](https://dash.cloudflare.com)，
 
 ## 4. 连 Workers Builds（Cloudflare 面板直连 Git，先把 Worker 建出来）
 
-这一步是把你的 Fork 连到 Cloudflare，让它以后每次 `git push` 都自动部署。**先做这一步，再做第 5 节**——Worker 建出来之前，面板里没有地方可以填构建变量。
-
 1. Cloudflare 面板左侧 → **Workers & Pages** → 点 **Create application**（或 **Create**）。
-2. 选 **Import a Git repository**（有的面板叫 Connect to Git / 从 Git 导入）。**不要走 Create → Worker 手动新建**，那样连不上 Git，不会自动部署。
-3. 选 **GitHub**，按提示授权 Cloudflare 访问你的 GitHub（OAuth 授权，只读你的仓库列表；选仓库时只勾你 Fork 的那一个）。
-4. 选仓库 `<你的用户名>/mail-center`，分支选 **main**，点下一步。
+2. 选 **Import a Git repository**（有的面板叫 Connect to Git / 从 Git 导入）。
+3. 选 **GitHub**，按提示授权 Cloudflare 访问你的 GitHub。
+4. 选仓库 -- 你复刻的 `mail-center项目`，分支选 **main**，点下一步。
 5. 按下面填构建设置（**一字不差**）：
 
 | 设置项（面板上显示的名字） | 填什么 |
@@ -104,9 +88,9 @@ Cloudflare 注册：打开 [dash.cloudflare.com](https://dash.cloudflare.com)，
 | Build variables and secrets | **如果这个导入页面上就有这一栏**，直接在这里加 `D1_ID`、`KV_ID`（都选 Secret，值是第 3 节复制的那两个 ID，填法见第 5 节），加完跳过第 5 节；**如果这个页面上没有这一栏**，先留空，点 Save and Deploy，第一次构建会失败，这是正常的，做完第 5 节再重试 |
 
 6. 点 **Save and Deploy**（或 Deploy），等第一次构建跑完（一般 1–3 分钟）。
-7. **第一次构建失败是正常的**，不用慌：只要第 5 节的两个构建变量还没加，构建就会在第一步报错停下（见第 5 节末尾）。先去做第 5 节，再回来重试。
+7. **第一次构建失败是正常的**，不用慌：只要第 5 节的两个构建变量还没加，构建就会在第一步报错停下（见第 5 节末尾）。先去做第 5 步、添加 D1 kv两个变量 ID值，再重新部署一次。
 
-> 不要新建 `wrangler.toml`。这个项目用的是 `wrangler.jsonc`，面板如果提示“更新 wrangler.toml”直接忽略。
+> 面板如果提示“更新 wrangler.toml”直接忽略。
 
 **这次部署实际干了三件事**（`npm run deploy:builds` 的定义在 `worker/package.json` 里）：
 
@@ -118,15 +102,13 @@ wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
 
 ---
 
-## 5. 加构建变量 D1_ID / KV_ID（在已经建好的 Worker 上），再重试部署
+## 5. 加构建变量 D1\_ID / KV\_ID（在已经建好的 Worker 上），再重试部署
 
 ### 5.1 加两个构建变量
 
-1. Cloudflare 面板左侧 → **Workers & Pages** → 点进 `mail-center` 这个 Worker（第 4 节刚建好的那个）。
-2. 点顶上的 **Settings（设置）**，左边找到 **Build（构建）**，里面有一栏 **Build variables and secrets（构建变量和机密）**。
-3. 点 **Add variable（添加变量）**，填名字 `D1_ID`，值填第 3 节复制的 D1 的 **Database ID**（D1 详情页上「数据库 ID」那一栏）。关键一步：同一个框里有个 **Type（类型）**，默认是 Variable（变量），点开选 **Secret（机密）** 再保存。选成机密后，值在构建日志里会被打码，看不到明文。
-4. 同样再加一个：名字 `KV_ID`，值填 KV 命名空间的 ID，类型也选 **Secret**。
-5. 确认两条都点了保存。保存后机密的值会变成小黑点，看不到明文，这是正常的。
+1. 点顶上的 **Settings（设置）**，左边找到 **Build（构建）**，里面有一栏 **Build variables and secrets（构建变量和机密）**。
+2. 点 **Add variable（添加变量）**，填名字 `D1_ID`，值填第 3 节复制的 D1 的 **Database ID**（D1 详情页上「数据库 ID」那一栏）。关键一步：同一个框里有个 **Type（类型）**，默认是 Variable（变量），点开选 **Secret（机密）** 再保存。选成机密。
+3. 同样再加一个：名字 `KV_ID`，值填 KV 命名空间的 ID，类型也选 **Secret**。
 
 **注意别加错地方**：Settings 里还有一栏叫 **Variables and Secrets（变量和机密）**，那是运行时的变量，构建的时候看不到，放那儿部署还是会报错。构建变量（`D1_ID`、`KV_ID`）放 **Build** 下面那一栏；运行时变量（`MC_` 开头的那些，见第 7 节）才放 Variables and Secrets 那一栏。
 
@@ -134,11 +116,6 @@ wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
 
 1. 回到这个 Worker 的 **Deployments（部署）** 页，找到最新那次构建（一般是失败的那次），点 **Retry deployment（重试部署）**。
 2. 等它跑完（一般 1–3 分钟），把构建日志拉到**尾部**看结果。
-
-- **怎么判断成功**：日志尾部看到 `Deployed` / `Current Version ID`，并且 Worker 详情页出现一个地址 `https://mail-center.<你的子域名>.workers.dev`，打开能看到登录页，就是成功了。
-- **如果构建失败**：先看构建日志的**尾部**，分清是哪一步失败：
-  - 日志里有 `[render-wrangler] 缺构建变量：D1_ID、KV_ID`（或其中一个），说明第 5.1 节的变量没加对：名字拼错、加到运行时变量那一栏了、或者没点保存。回去按 5.1 节重加，再 Retry。
-  - “D1 迁移成功”不代表 Worker 已发布。如果最后一步 `wrangler deploy` 被拒绝（曾出现错误码 10021），解法很简单：往仓库推一个空提交再触发一次构建（`git commit --allow-empty -m "retry deploy" && git push`），一般第二次就成功了。
 
 ### 5.3 为什么是这样，不直接改 `worker/wrangler.jsonc`
 
@@ -155,7 +132,7 @@ wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
 ## 6. 第一次打开：设站点密码
 
 1. 打开你的 Worker 地址（`https://mail-center.<你的子域名>.workers.dev`）。
-2. 第一次会看到登录页，用 **账号 `admin`、密码 `123456`** 登录（**只在还没设过站点密码时有效**）。
+2. 第一次会看到登录页，用 **账号&#32;`admin`、密码&#32;`123456`** 登录（**只在还没设过站点密码时有效**）。
 3. 登录后第一件事：去 **设置 → 账号设置**，把**登录账号和站点密码改成你自己的**。
 
 > ⚠️ **站点密码非常重要**：它同时是解密全部邮箱凭据的密钥。**忘密码且所有设备都退出了，没有“忘记密码”入口，只能把邮箱逐个删了重加（授权码重填）。** 所以设一个你记得住的密码，并且不要把站点密码填进任何邮箱的密码/授权码框——面板密码只用来登面板。
@@ -184,15 +161,15 @@ wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
 | `MC_ADMIN_PASS` | （无） | 备用的登入密码，见第 6 节 |
 | `MC_INBOX_LIMIT` | 30 | 每页显示几封（5–100）；范围没开时一次就取这么多封，开着时按这个数翻页 |
 | `MC_INBOX_DAYS` | 0（不限） | 取信时间范围天数：`0`=不限（只取最新 N 封）；`30`/`90`/`180`/`365`=最近 1 个月/3 个月/半年/1 年的全部邮件 |
-| `MC_AUTO_REFRESH_MS` | 30000 | 收件箱自动刷新间隔（毫秒），30000 = 30 秒 |
-| `MC_SMTP_TIMEOUT_MS` | 60000 | 发信超时（毫秒） |
-| `MC_SIDEBAR_W` | 240 | 左栏宽（px） |
-| `MC_MID_W` | 220 | 收件栏宽（px） |
+|  |  |  |
+|  |  |  |
+|  |  |  |
+|  |  |  |
 
 **注意：**
 
 - 面板变量**优先于**设置页，设了之后设置页里对应的那项会变灰（改不了），要改就去面板改变量。
-- 变量只在面板加，**不要写进 `wrangler.jsonc`**（那是公开仓库）。`keep_vars: true` 会保证部署时不丢面板变量。
+- 变量只在面板加，
 - 加/改变量**不用重新部署**，保存后稍等片刻刷新就生效。
 
 ---
@@ -224,7 +201,7 @@ wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
 2. 填三样：**面板地址**（你自己的面板网址）+ **登录账号**（登面板的账号，一般就是邮箱地址）+ **面板密码**。
 3. 点保存，同样先测连接，通了才存。
 
-> ⚠️ 添加页里默认填的面板地址（Henna `https://email.070605.xyz/`、Cloud Mail `https://cfmail.151819.xyz/`、Mango-Mail `https://mango-mail.53424209.workers.dev/`）**是原作者自己的面板**，Fork 部署的人必须改成**你自己的面板地址**，不要直接用别人的。
+> ⚠️ 添加页里默认填的面板地址改成**你自己的面板地址**。
 
 - **批量加**：域名邮箱支持一次加多个地址——地址栏多行输入，一行一个（也认逗号/分号/空格分隔），共用同一个面板地址和登录账号密码，后端逐个测连接，通的存、不通的逐个报原因、已加过的跳过。
 - **记住登录**：成功加过一次后，下次打开添加页会自动填上登录账号和密码（只存在你自己的浏览器 localStorage 里，分 Henna / Cloud Mail / Mango-Mail 三类记；密码栏下面有“忘记已记住的面板账号”可以清掉）。
@@ -240,13 +217,11 @@ wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
 ## 9. Telegram 新邮件通知（可选）
 
 1. 在 Telegram 里找 **@BotFather**，发 `/newbot` 建一个机器人，拿到 **Bot Token**（一长串字符）。
-2. 找 **@userinfobot**，发任意消息，它会回你的 **chat_id**（一串数字）。
-3. 回到 Mail Center 面板 → **设置 → 消息推送**，填 Bot Token 和 chat_id，打开开关，点 **发一条测试通知**，手机上收到就说明通了。
-4. 不用再配别的：`wrangler.jsonc` 里已经有 `"triggers": { "crons": ["*/5 * * * *"] }`，每 5 分钟自动轮询一次。
+2. 找 **@userinfobot**，发任意消息，它会回你的 **chat\_id**（一串数字）。
+3. 回到 Mail Center 面板 → **设置 → 消息推送**，填 Bot Token 和 chat\_id，打开开关，点 **发一条测试通知**，手机上收到就说明通了。
+4. 每 5 分钟自动轮询一次。
 
 **规则**：只查收件箱、只查连接正常的 IMAP 邮箱；每轮每邮箱最多推 5 封；通知含邮箱、北京时间、发件人、标题、正文前 120 字和一个看全文链接。**开启时只记基线不推旧信**（旧邮件不会一次性涌进来）；开关关掉再打开会清基线重记。
-
-**备用触发**：设置页里有一行“外部定时地址”，形如 `https://你的域名/api/tgcheck?key=<一串密钥>`，如果 Cron 没跑，可以用外部定时服务（比如 cron-job.org）每 5 分钟调这个地址；key 不对会报 403。
 
 ---
 
@@ -258,17 +233,9 @@ wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
 
 ---
 
-## 11. 以后怎么更新代码
-
-- 改代码 → `git push` 到 main 分支 → Workers Builds 自动重新部署。**不用进面板点任何东西。** 构建变量（`D1_ID` / `KV_ID`）和面板变量一样存在面板上，跟代码推送没关系，推代码动不到它们，更新代码不用重填。
-- 每次部署都会跑 `schema.sql`（建表语句全是 `CREATE TABLE IF NOT EXISTS`，幂等，反复跑是安全的）。自己加表字段时也照这个写法，**不要写裸 `ALTER TABLE ADD COLUMN`**（重复跑会报错）。
-- **升版规矩**（改界面时容易踩的坑）：每次改版要同时改两处——`worker/public/app.js` 里的 `APP_VERSION`，和 `worker/public/index.html` 里 `app.js?v=版本号`；改了 `styles.css` 还要改 `styles.css?v=版本号`。只改一处，浏览器会缓存旧版，你看到的还是上一版。
-- **部署后还是旧版**：先看面板左栏底部的版本号，确认线上是不是新版；如果不是，等构建跑完再硬刷新（Ctrl+Shift+R）。多标签页混着旧版时，先核对版本号再判断。
-- **已经部署过、想按新办法改**：如果你是 2026-11-15 之前部署的，仓库里的 `wrangler.jsonc` 还写着真实 ID，拉取最新代码后，按第 5 节把 `D1_ID` / `KV_ID` 加到 Build 构建变量里再推一次，之后就不再需要改代码里的 ID 了。Git 历史里旧提交还留着旧 ID，ID 本身不是密码，不用重写历史。
-
 ---
 
-## 12. 免费额度够不够
+## 11. 免费额度够不够
 
 | 项目 | 免费额度 | 本项目用量 |
 | --- | --- | --- |
@@ -284,10 +251,10 @@ wrangler deploy --config ./wrangler.rendered.jsonc  # 发布 Worker
 
 ## 13. 常见问题
 
-**Q：第一次构建失败，日志里有 `[render-wrangler] 缺构建变量`？**
+**Q：第一次构建失败，日志里有&#32;`[render-wrangler] 缺构建变量`？**
 A：构建变量没加对。回去按第 5 节检查：名字是不是 `D1_ID` / `KV_ID`（大小写不能错）、是不是加在 **Build** 下面那栏（不是运行时变量那栏）、是不是点了保存。加好后去 Deployments 点 **Retry deployment**，不用改代码。
 
-**Q：打开是登录页，`admin / 123456` 登不上？**
+**Q：打开是登录页，`admin / 123456`&#32;登不上？**
 A：这个默认账号只在**还没设过站点密码**时有效。设过之后只认你设的密码（或 CF 的 `MC_ADMIN_PASS`，见第 6 节）。如果密码忘了且所有设备都退出了，没有找回办法，只能删邮箱重加。
 
 **Q：部署完打开还是旧版 / 版本号没变？**
@@ -315,9 +282,9 @@ A：如果你的 Mango-Mail 面板开了登录 Turnstile（人机验证），API
 A：检查 SMTP 端口：QQ 用 465/SSL，不要用 587/STARTTLS（在 Worker 上会卡住）。
 
 **Q：TG 测试通知收不到？**
-A：先确认 Bot Token 和 chat_id 填对了（Token 是 @BotFather 给的那一串，chat_id 是 @userinfobot 回的数字）；再确认开关打开了；再点一次“发一条测试通知”。Cron 每 5 分钟跑一轮，不会立刻推。
+A：先确认 Bot Token 和 chat\_id 填对了（Token 是 @BotFather 给的那一串，chat\_id 是 @userinfobot 回的数字）；再确认开关打开了；再点一次“发一条测试通知”。Cron 每 5 分钟跑一轮，不会立刻推。
 
-**Q：`wrangler.toml` 的提示要不要管？**
+**Q：`wrangler.toml`&#32;的提示要不要管？**
 A：不用管，不要新建。项目用 `wrangler.jsonc`。
 
 ---
